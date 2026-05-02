@@ -1,0 +1,30 @@
+{
+  "pages": [
+    { "path": "pages/role-select/index", "style": { "navigationStyle": "custom" } },
+    { "path": "pages/login/index", "style": { "navigationBarTitleText": "登录" } },
+    { "path": "pages/onboarding/index", "style": { "navigationBarTitleText": "欢迎使用" } },
+    { "path": "pages/home/index", "style": { "navigationStyle": "custom" } },
+    { "path": "pages/stock/index", "style": { "navigationBarTitleText": "家里剩余药量" } },
+    { "path": "pages/assistant/index", "style": { "navigationBarTitleText": "小派用药助手" } },
+    { "path": "pages/profile/index", "style": { "navigationBarTitleText": "个人中心" } },
+    { "path": "pages/family/home", "style": { "navigationBarTitleText": "家属监护" } }
+  ],
+  "globalStyle": {
+    "navigationBarTextStyle": "black",
+    "navigationBarTitleText": "PillPal",
+    "navigationBarBackgroundColor": "#0b9d6a",
+    "backgroundColor": "#f4f6f8"
+  },
+  "tabBar": {
+    "color": "#9ca3af",
+    "selectedColor": "#0b9d6a",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "black",
+    "list": [
+      { "pagePath": "pages/home/index", "text": "首页", "iconPath": "static/tab-home.png", "selectedIconPath": "static/tab-home-active.png" },
+      { "pagePath": "pages/stock/index", "text": "药量", "iconPath": "static/tab-stock.png", "selectedIconPath": "static/tab-stock-active.png" },
+      { "pagePath": "pages/assistant/index", "text": "小派", "iconPath": "static/tab-chat.png", "selectedIconPath": "static/tab-chat-active.png" },
+      { "pagePath": "pages/profile/index", "text": "我的", "iconPath": "static/tab-profile.png", "selectedIconPath": "static/tab-profile-active.png" }
+    ]
+  }
+}
