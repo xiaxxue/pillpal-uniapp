@@ -1,6 +1,6 @@
 <template>
   <view class="page">
-    <scroll-view scroll-y class="content">
+    <view class="content">
       <view class="overview">
         <view class="ov-item"><text class="ov-num">{{ medications.length }}</text><text class="ov-label">正在吃的药</text></view>
         <view class="ov-item"><text class="ov-num warn">{{ urgentCount }}</text><text class="ov-label">快吃完了</text></view>
@@ -29,7 +29,7 @@
           <button class="btn-del" @click="handleDelete(med)">删除</button>
         </view>
       </view>
-    </scroll-view>
+    </view>
   </view>
 </template>
 

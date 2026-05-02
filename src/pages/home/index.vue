@@ -11,7 +11,7 @@
       </view>
     </view>
 
-    <scroll-view scroll-y class="content">
+    <view class="content">
       <!-- 空状态 -->
       <view v-if="medications.length === 0" class="empty-state">
         <text class="empty-icon">💊</text>
@@ -87,7 +87,7 @@
           </view>
         </view>
       </view>
-    </scroll-view>
+    </view>
   </view>
 </template>
 
