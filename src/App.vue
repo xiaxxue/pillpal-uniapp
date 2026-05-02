@@ -16,8 +16,18 @@ page {
   box-sizing: border-box;
 }
 
-view, text, input, button, scroll-view {
+view, text, input, button, scroll-view, textarea {
   box-sizing: border-box;
+}
+
+/* 确保 input 可以点击和输入 */
+uni-input, uni-textarea {
+  pointer-events: auto !important;
+}
+uni-input input, uni-textarea textarea {
+  pointer-events: auto !important;
+  -webkit-user-select: auto !important;
+  user-select: auto !important;
 }
 
 /* 适配底部 tabBar */

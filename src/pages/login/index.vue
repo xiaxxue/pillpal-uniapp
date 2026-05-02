@@ -5,15 +5,15 @@
     <view v-if="!isLoading">
       <view v-if="mode === 'signup'" class="form-group">
         <text class="label">昵称</text>
-        <input class="input" v-model="name" placeholder="如：张叔叔" />
+        <input class="ipt" :value="name" @input="name = $event.detail.value" placeholder="如：张叔叔" />
       </view>
       <view class="form-group">
         <text class="label">邮箱</text>
-        <input class="input" v-model="email" type="text" placeholder="请输入邮箱" />
+        <input class="ipt" :value="email" @input="email = $event.detail.value" placeholder="请输入邮箱" />
       </view>
       <view class="form-group">
         <text class="label">密码</text>
-        <input class="input" v-model="password" type="password" :password="true" placeholder="请输入密码" />
+        <input class="ipt" :value="password" @input="password = $event.detail.value" password placeholder="请输入密码" />
       </view>
 
       <button class="btn-primary" @click="handleSubmit">{{ mode === 'login' ? '登录' : '注册' }}</button>
@@ -103,7 +103,7 @@ const handleSubmit = async () => {
 .title { font-size: 44rpx; font-weight: 700; display: block; text-align: center; margin-bottom: 48rpx; }
 .form-group { margin-bottom: 24rpx; }
 .label { font-size: 26rpx; font-weight: 600; color: #6b7280; display: block; margin-bottom: 8rpx; }
-.input { width: 100%; padding: 20rpx 24rpx; border: 2rpx solid #e5e7eb; border-radius: 16rpx; font-size: 30rpx; background: #f4f6f8; }
+.ipt { width: 100%; padding: 20rpx 24rpx; border: 2rpx solid #e5e7eb; border-radius: 16rpx; font-size: 30rpx; background: #f4f6f8; height: 80rpx; }
 .btn-primary { width: 100%; padding: 24rpx; background: #0b9d6a; color: #fff; border-radius: 16rpx; font-size: 32rpx; font-weight: 600; margin-top: 24rpx; border: none; }
 .switch-row { text-align: center; margin-top: 24rpx; font-size: 26rpx; color: #6b7280; }
 .switch-row text { color: #0b9d6a; font-weight: 600; }

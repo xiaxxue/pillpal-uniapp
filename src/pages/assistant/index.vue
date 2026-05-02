@@ -39,6 +39,16 @@
         </view>
       </view>
 
+      <!-- 思考中 -->
+      <view v-if="isThinking" class="msg-row assistant">
+        <view class="msg-left">
+          <view class="avatar-ai">💬</view>
+          <view class="bubble-ai">
+            <text class="thinking-text">小派正在思考中...</text>
+          </view>
+        </view>
+      </view>
+
     </view>
 
     <!-- 输入栏 -->
@@ -54,6 +64,7 @@ import { ref, computed, nextTick } from 'vue'
 import { useMedicationsStore } from '../../stores/medications'
 import { useRecordsStore } from '../../stores/records'
 import { TIME_SLOTS, getMedKey } from '../../utils/date'
+import { askAI, buildContext } from '../../utils/ai'
 
 const medsStore = useMedicationsStore()
 const recordsStore = useRecordsStore()
@@ -63,12 +74,15 @@ const records = computed(() => recordsStore.records)
 const messages = ref<any[]>([])
 const inputText = ref('')
 const scrollTarget = ref('')
+const isThinking = ref(false)
 
 const quickQuestions = [
   { text: '今天还有哪些药没吃？', icon: '💊' },
   { text: '帮我查一下库存', icon: '📦' },
   { text: '哪些药需要续方？', icon: '📋' },
-  { text: '今天吃了几次药？', icon: '✅' }
+  { text: '氨氯地平和阿司匹林能一起吃吗？', icon: '💡' },
+  { text: '吃药期间能喝酒吗？', icon: '🍷' },
+  { text: '忘吃药了怎么办？', icon: '😰' }
 ]
 
 const addMsg = (text: string, role: string) => {
@@ -77,72 +91,23 @@ const addMsg = (text: string, role: string) => {
   nextTick(() => { scrollTarget.value = 'msg-' + String(id).replace('.', '') })
 }
 
-const processQuestion = (text: string) => {
+const processQuestion = async (text: string) => {
   addMsg(text, 'user')
-  // 模拟思考延迟
-  setTimeout(() => {
-    let reply = ''
-    if (/库存|还剩|快没了|够吃/.test(text)) {
-      if (medications.value.length === 0) {
-        reply = '你还没有添加药品哦～\n\n去首页点「添加药品」开始吧 😊'
-      } else {
-        reply = '📦 你的药品库存：\n\n'
-        medications.value.forEach(m => {
-          const days = m.stock_count > 0 ? Math.floor(m.stock_count / (m.daily_usage || 1)) : 0
-          const icon = days <= 7 ? '🔴' : days <= 14 ? '🟡' : '🟢'
-          reply += `${icon} ${m.name}\n    剩 ${m.stock_count} 片，可服 ${days} 天\n\n`
-        })
-      }
-    } else if (/没吃|今天|今日|漏服|吃了几次/.test(text)) {
-      const pending: string[] = []
-      const done: string[] = []
-      medications.value.forEach(m => {
-        if (!m.times) return
-        m.times.forEach((t: string) => {
-          const slot = TIME_SLOTS[t]
-          if (!slot) return
-          const key = getMedKey(m.name, slot.hour)
-          if (records.value[key]?.startsWith('done_')) {
-            done.push(m.name + ' ' + slot.time)
-          } else {
-            pending.push(m.name + ' ' + slot.time)
-          }
-        })
-      })
-      if (pending.length === 0 && done.length > 0) {
-        reply = '🎉 太棒了！今天的药全部吃完了！\n\n共完成 ' + done.length + ' 次服药，继续保持！'
-      } else if (done.length === 0 && pending.length > 0) {
-        reply = '📋 今天还有 ' + pending.length + ' 次没吃：\n\n' + pending.map(p => '  • ' + p).join('\n') + '\n\n记得按时吃药哦 💪'
-      } else {
-        reply = '📊 今日进度：' + done.length + '/' + (done.length + pending.length) + '\n\n'
-        if (done.length > 0) reply += '✅ 已服用：\n' + done.map(d => '  • ' + d).join('\n') + '\n\n'
-        if (pending.length > 0) reply += '⏰ 待服用：\n' + pending.map(p => '  • ' + p).join('\n')
-      }
-    } else if (/续方|帮我续|快没了/.test(text)) {
-      const urgent = medications.value.filter(m => {
-        const days = m.stock_count > 0 ? Math.floor(m.stock_count / (m.daily_usage || 1)) : 0
-        return days <= 7
-      })
-      if (urgent.length === 0) {
-        reply = '✅ 你的药品库存都很充足，暂时不需要续方～'
-      } else {
-        reply = '⚠️ 以下药品建议尽快续方：\n\n'
-        urgent.forEach(m => {
-          const days = Math.floor(m.stock_count / (m.daily_usage || 1))
-          reply += `🔴 ${m.name}\n    剩 ${m.stock_count} 片，只够 ${days} 天\n\n`
-        })
-        reply += '建议联系医生开处方 🏥'
-      }
-    } else {
-      reply = '👋 我是小派，你的用药助手！\n\n我可以帮你：\n\n💊 查看今天吃药情况\n📦 查看药品库存\n📋 续方提醒\n\n直接输入或点上方快捷问题试试吧～'
-    }
-    addMsg(reply, 'assistant')
-  }, 600)
+  isThinking.value = true
+
+  // 构建用药上下文
+  const context = buildContext(medications.value, records.value)
+
+  // 调用 DeepSeek AI
+  const reply = await askAI(text, context)
+
+  isThinking.value = false
+  addMsg(reply, 'assistant')
 }
 
 const ask = (text: string) => processQuestion(text)
 const send = () => {
-  if (inputText.value.trim()) {
+  if (inputText.value.trim() && !isThinking.value) {
     processQuestion(inputText.value.trim())
     inputText.value = ''
   }
@@ -336,6 +301,16 @@ const send = () => {
   max-height: 200rpx;
   line-height: 1.5;
 }
+.thinking-text {
+  font-size: 26rpx;
+  color: #6b7280;
+  animation: blink 1.5s infinite;
+}
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
 .send-btn {
   padding: 16rpx 28rpx;
   background: #0b9d6a;
