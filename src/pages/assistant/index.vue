@@ -1,6 +1,6 @@
 <template>
   <view class="page">
-    <scroll-view scroll-y class="chat-area" :scroll-into-view="scrollTarget" :scroll-with-animation="true">
+    <view class="chat-area">
       <!-- 欢迎区 -->
       <view class="welcome-card">
         <view class="welcome-avatar-wrap">
@@ -39,18 +39,12 @@
         </view>
       </view>
 
-      <!-- 底部占位 -->
-      <view style="height: 140rpx"></view>
-    </scroll-view>
+    </view>
 
     <!-- 输入栏 -->
     <view class="input-bar">
-      <view class="input-wrap">
-        <input class="chat-input" v-model="input" placeholder="输入你的用药问题..." @confirm="send" :adjust-position="true" />
-      </view>
-      <view class="send-btn" :class="{ active: input.trim() }" @click="send">
-        <text class="send-icon">➤</text>
-      </view>
+      <textarea class="chat-input" v-model="inputText" placeholder="输入你的用药问题..." :auto-height="true" :maxlength="200" confirm-type="send" @confirm="send" />
+      <view class="send-btn" @click="send"><text>发送</text></view>
     </view>
   </view>
 </template>
@@ -67,7 +61,7 @@ const medications = computed(() => medsStore.medications)
 const records = computed(() => recordsStore.records)
 
 const messages = ref<any[]>([])
-const input = ref('')
+const inputText = ref('')
 const scrollTarget = ref('')
 
 const quickQuestions = [
@@ -148,25 +142,23 @@ const processQuestion = (text: string) => {
 
 const ask = (text: string) => processQuestion(text)
 const send = () => {
-  if (input.value.trim()) {
-    processQuestion(input.value.trim())
-    input.value = ''
+  if (inputText.value.trim()) {
+    processQuestion(inputText.value.trim())
+    inputText.value = ''
   }
 }
 </script>
 
 <style scoped>
 .page {
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
   background: linear-gradient(180deg, #f0faf5 0%, #f4f6f8 30%);
+  min-height: 100vh;
+  padding-bottom: 0;
 }
 
 /* 聊天区 */
 .chat-area {
-  flex: 1;
-  padding: 24rpx 24rpx 0;
+  padding: 24rpx;
 }
 
 /* 欢迎卡片 */
@@ -328,40 +320,31 @@ const send = () => {
 .input-bar {
   display: flex;
   gap: 16rpx;
-  padding: 16rpx 24rpx;
-  padding-bottom: calc(16rpx + env(safe-area-inset-bottom));
+  padding: 20rpx 24rpx 40rpx;
   background: #fff;
   border-top: 1rpx solid #e5e7eb;
   align-items: center;
 }
-.input-wrap {
-  flex: 1;
-  background: #f4f6f8;
-  border-radius: 40rpx;
-  padding: 4rpx;
-}
 .chat-input {
-  padding: 16rpx 28rpx;
+  flex: 1;
+  padding: 18rpx 28rpx;
   font-size: 28rpx;
-  width: 100%;
+  background: #f4f6f8;
+  border-radius: 20rpx;
+  border: 2rpx solid #e5e7eb;
+  min-height: 60rpx;
+  max-height: 200rpx;
+  line-height: 1.5;
 }
 .send-btn {
-  width: 76rpx;
-  height: 76rpx;
-  border-radius: 50%;
-  background: #e5e7eb;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  transition: all 0.2s;
-}
-.send-btn.active {
-  background: linear-gradient(135deg, #0b9d6a, #0abf7f);
-  box-shadow: 0 4rpx 16rpx rgba(11, 157, 106, 0.3);
-}
-.send-icon {
-  font-size: 32rpx;
+  padding: 16rpx 28rpx;
+  background: #0b9d6a;
   color: #fff;
+  border-radius: 40rpx;
+  font-size: 26rpx;
+  font-weight: 600;
+  flex-shrink: 0;
+  border: none;
+  line-height: 1;
 }
 </style>
