@@ -89,6 +89,43 @@ const tools = [
         required: ['med_name', 'quantity']
       }
     }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'add_medication',
+      description: '添加一种新药品到用药计划。当用户说医生开了新药、要加一种药等意思时调用。',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: '药品名称，如"二甲双胍片"' },
+          dosage: { type: 'string', description: '单次剂量，如"0.5g × 1片"' },
+          times: {
+            type: 'array',
+            items: { type: 'string' },
+            description: '服用时间，可选值："晨起 7:00"、"早餐后 8:00"、"午餐后 14:30"、"晚餐后 18:30"、"晚间 21:00"'
+          },
+          condition: { type: 'string', description: '服用条件：空腹、餐后30分钟、睡前、无要求' },
+          disease: { type: 'string', description: '治什么病，如"糖尿病"' },
+          stock_count: { type: 'number', description: '当前库存片数，默认0' }
+        },
+        required: ['name', 'dosage', 'times', 'condition', 'disease']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'remove_medication',
+      description: '从用药计划中删除一种药品。当用户说停药、不吃了、医生让停等意思时调用。注意：这是危险操作，务必先和用户确认。',
+      parameters: {
+        type: 'object',
+        properties: {
+          med_name: { type: 'string', description: '要删除的药品名称' }
+        },
+        required: ['med_name']
+      }
+    }
   }
 ]
 
@@ -300,10 +337,11 @@ ${realtimeData}
 规则：
 - 需要信息时主动调工具查询，不要猜测
 - 可以连续调用多个工具
-- 危险操作（删药、停药）先和用户确认再执行
+- 危险操作（删药、停药、修改库存）先和用户确认再执行，不要直接调工具
 - 用温暖亲切的语气，用 emoji
 - 回答简短实用
-- 涉及调药停药提醒咨询医生`
+- 涉及调药停药提醒咨询医生
+- 每次回复结尾加一句鼓励或关心的话（如"继续加油💪"、"按时吃药身体棒棒的🌟"、"你做得很好，坚持就是胜利🎉"）`
     },
     ...history,
     { role: 'user', content: userMessage }

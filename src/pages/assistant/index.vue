@@ -176,6 +176,8 @@ const processQuestion = async (text: string) => {
     if (name === 'skip_med') return await executeSkipMed(userId!, args.med_name, args.time_slots || [], args.reason || '其他')
     if (name === 'undo_med') return await executeUndoMed(userId!, args.med_name, args.time_slots || [])
     if (name === 'update_stock') return await executeUpdateStock(userId!, args.med_name, args.quantity)
+    if (name === 'add_medication') return await executeAddMed(userId!, args)
+    if (name === 'remove_medication') return await executeRemoveMed(userId!, args.med_name)
 
     return '未知工具: ' + name
   }
@@ -190,7 +192,9 @@ const processQuestion = async (text: string) => {
         take_med: '✅ 正在打卡...',
         skip_med: '⏭ 正在记录跳过...',
         undo_med: '↩ 正在撤回...',
-        update_stock: '📝 正在修改库存...'
+        update_stock: '📝 正在修改库存...',
+        add_medication: '💊 正在添加新药品...',
+        remove_medication: '🗑 正在移除药品...'
       }
       thinkingSteps.value.push(labels[step.toolName || ''] || '🔧 执行操作...')
     }
@@ -313,6 +317,37 @@ const executeUpdateStock = async (userId: string, medName: string, quantity: num
   if (!med) return `没找到药品"${medName}"`
   await medsStore.update(userId, med.id, { stock_count: quantity })
   return `已将 ${med.name} 的库存修改为 ${quantity} 片`
+}
+
+// 添加新药品
+const executeAddMed = async (userId: string, args: any): Promise<string> => {
+  // 检查重复
+  const dup = medications.value.find(m => m.name === args.name && m.times?.some((t: string) => args.times?.includes(t)))
+  if (dup) return `${args.name} 在该时间段已存在，无需重复添加`
+
+  const result = await medsStore.add(userId, {
+    name: args.name,
+    dosage: args.dosage,
+    frequency: args.times?.length || 1,
+    times: args.times || [],
+    condition: args.condition || '无要求',
+    disease: args.disease || '',
+    stock_count: args.stock_count || 0,
+    daily_usage: args.times?.length || 1,
+    note: ''
+  })
+  if (result) {
+    return `已添加 ${args.name}（${args.dosage}），时间：${args.times?.join('、')}，治${args.disease}，库存${args.stock_count || 0}片`
+  }
+  return '添加失败，请重试'
+}
+
+// 删除药品
+const executeRemoveMed = async (userId: string, medName: string): Promise<string> => {
+  const med = medications.value.find(m => m.name.includes(medName) || medName.includes(m.name))
+  if (!med) return `没找到药品"${medName}"`
+  await medsStore.remove(userId, med.id)
+  return `已从用药计划中移除 ${med.name}`
 }
 
 const ask = (text: string) => processQuestion(text)
