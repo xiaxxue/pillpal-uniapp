@@ -121,20 +121,43 @@ const processQuestion = async (text: string) => {
   const matchTake = /打卡|吃了|已经服|帮我记录|标记.*服用/.test(text)
   console.log('匹配打卡意图:', matchTake, 'userId:', !!userId)
   if (matchTake && userId) {
+    // 识别时间段
+    const mentionedSlots = matchTimeSlots(text)
     const medName = matchMedName(text)
-    if (medName) {
-      const result = await doTakeMed(userId, medName)
-      actionResult = result
-    } else {
-      // 没指定药名，把所有未吃的都打卡
+
+    if (/全部|所有/.test(text) && /都吃了|打卡/.test(text)) {
+      // 明确说"全部都吃了"才全打
       const pending = getPendingMeds()
-      if (pending.length > 0 && /全部|所有|都吃了/.test(text)) {
+      if (pending.length > 0) {
         for (const p of pending) {
           await doTakeMed(userId, p.name, p.hour)
         }
-        actionResult = `已帮你打卡 ${pending.length} 次服药记录`
-      } else if (pending.length > 0) {
-        actionResult = `你有 ${pending.length} 种药还没吃，请告诉我具体哪个药已经吃了，或者说"全部都吃了"`
+        actionResult = `已帮你打卡全部 ${pending.length} 次服药记录`
+      } else {
+        actionResult = '今天的药已经全部打过卡了'
+      }
+    } else if (mentionedSlots.length > 0) {
+      // 指定了时间段，只打这些时段的卡
+      let count = 0
+      const pending = getPendingMeds()
+      for (const p of pending) {
+        if (mentionedSlots.includes(p.hour)) {
+          await doTakeMed(userId, p.name, p.hour)
+          count++
+        }
+      }
+      actionResult = count > 0 ? `已打卡 ${count} 次（${mentionedSlots.map(h => getSlotLabel(h)).join('、')}）` : '这些时段已经打过卡了'
+    } else if (medName) {
+      // 指定了药名
+      const result = await doTakeMed(userId, medName)
+      actionResult = result
+    } else {
+      // 没有明确指定，提示用户
+      const pending = getPendingMeds()
+      if (pending.length > 0) {
+        actionResult = `你有 ${pending.length} 次药还没吃，请告诉我：\n• 具体哪个药吃了（如"氨氯地平吃了"）\n• 或哪个时段吃了（如"晨起的吃了"）\n• 或说"全部都吃了"`
+      } else {
+        actionResult = '今天的药已经全部打过卡了'
       }
     }
   }
@@ -177,6 +200,23 @@ const processQuestion = async (text: string) => {
 }
 
 // === 辅助函数 ===
+
+// 从用户消息里匹配时间段
+const matchTimeSlots = (text: string): number[] => {
+  const slots: number[] = []
+  if (/晨起|早上|早晨|7点|7:00/.test(text)) slots.push(7)
+  if (/早餐后|早饭后|8点|8:00/.test(text)) slots.push(8)
+  if (/午餐后|午饭后|中午|14/.test(text)) slots.push(14.5)
+  if (/晚餐后|晚饭后|18/.test(text)) slots.push(18.5)
+  if (/晚间|睡前|晚上|21/.test(text)) slots.push(21)
+  return slots
+}
+
+// 时间段小时数转标签
+const getSlotLabel = (hour: number): string => {
+  const map: Record<number, string> = { 7: '晨起', 8: '早餐后', 14.5: '午餐后', 18.5: '晚餐后', 21: '晚间' }
+  return map[hour] || String(hour)
+}
 
 // 从用户消息里匹配药品名
 const matchMedName = (text: string): string | null => {
