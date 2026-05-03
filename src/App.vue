@@ -6,6 +6,7 @@ onLaunch(() => {
 </script>
 
 <style lang="scss">
+/* uView 组件样式 */
 @import 'uview-plus/index.scss';
 
 /* 全局样式 */

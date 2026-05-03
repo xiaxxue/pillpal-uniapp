@@ -1,7 +1,4 @@
-/* uView Plus 主题定制 */
-@import 'uview-plus/theme.scss';
-
-/* PillPal 主题色 */
+/* PillPal 主题色（uView theme 已在 vite.config.ts 全局引入） */
 $u-primary: #0b9d6a;
 $u-success: #0b9d6a;
 $u-warning: #f57c00;
