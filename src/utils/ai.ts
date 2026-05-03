@@ -1,3 +1,5 @@
+import { normalizeTime, getMedKey } from './date'
+
 const DEEPSEEK_API_KEY = 'sk-b903314c9e8d40e2b56d37a53252ed17'
 const DEEPSEEK_URL = 'https://api.deepseek.com/chat/completions'
 
@@ -38,7 +40,7 @@ const tools = [
         type: 'object',
         properties: {
           med_name: { type: 'string', description: '药品名称。如果用户没指定具体药品，填"all"' },
-          time_slots: { type: 'array', items: { type: 'number' }, description: '时段小时数。晨起=7，早餐后=8，午餐后=14.5，晚餐后=18.5，晚间=21。没指定填[]' }
+          time_slots: { type: 'array', items: { type: 'string' }, description: '服药时间，格式"HH:MM"，如["08:00","14:30"]。没指定填[]' }
         },
         required: ['med_name', 'time_slots']
       }
@@ -53,7 +55,7 @@ const tools = [
         type: 'object',
         properties: {
           med_name: { type: 'string', description: '药品名称。跳过全部填"all"' },
-          time_slots: { type: 'array', items: { type: 'number' }, description: '时段小时数。没指定填[]' },
+          time_slots: { type: 'array', items: { type: 'string' }, description: '服药时间，格式"HH:MM"。没指定填[]' },
           reason: { type: 'string', description: '跳过原因' }
         },
         required: ['med_name', 'time_slots', 'reason']
@@ -69,7 +71,7 @@ const tools = [
         type: 'object',
         properties: {
           med_name: { type: 'string', description: '药品名称。撤回全部填"all"' },
-          time_slots: { type: 'array', items: { type: 'number' }, description: '时段小时数。没指定填[]' }
+          time_slots: { type: 'array', items: { type: 'string' }, description: '服药时间，格式"HH:MM"。没指定填[]' }
         },
         required: ['med_name', 'time_slots']
       }
@@ -103,7 +105,7 @@ const tools = [
           times: {
             type: 'array',
             items: { type: 'string' },
-            description: '服用时间，可选值："晨起 7:00"、"早餐后 8:00"、"午餐后 14:30"、"晚餐后 18:30"、"晚间 21:00"'
+            description: '服用时间，格式"HH:MM"，如["08:00","21:00"]。根据用户描述设定合理时间'
           },
           condition: { type: 'string', description: '服用条件：空腹、餐后30分钟、睡前、无要求' },
           disease: { type: 'string', description: '治什么病，如"糖尿病"' },
@@ -174,8 +176,9 @@ export function buildRealtimeData(medications: any[], records: Record<string, st
     medications.forEach(m => {
       if (!m.times) return
       m.times.forEach((t: string) => {
-        const key = m.name + '_' + (t.match(/(\d+[.:]\d+)/) ? parseFloat(t.match(/(\d+)/)?.[0] || '0') : 0)
-        if (!records[key]) pending.push(m.name + '(' + t + ')')
+        const time = normalizeTime(t)
+        const key = getMedKey(m.name, time)
+        if (!records[key]) pending.push(m.name + '(' + time + ')')
       })
     })
     if (pending.length > 0) data += '\n待服：' + pending.join('、')

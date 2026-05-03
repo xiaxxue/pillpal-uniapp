@@ -73,11 +73,15 @@
       </view>
 
       <view class="form-item">
-        <text class="label">什么时候吃（可多选）</text>
-        <view class="time-grid">
-          <view v-for="t in timeOptions" :key="t" class="time-btn" :class="{ selected: medTimes.includes(t) }" @click="toggleTime(t)">
+        <text class="label">什么时候吃</text>
+        <view class="time-list">
+          <view v-for="(t, i) in medTimes" :key="i" class="time-tag">
             <text>{{ t }}</text>
+            <text class="time-del" @click="medTimes.splice(i, 1)">✕</text>
           </view>
+          <picker mode="time" @change="addTime">
+            <view class="time-add">+ 添加时间</view>
+          </picker>
         </view>
       </view>
 
@@ -136,7 +140,6 @@ const medDisease = ref('')
 const medStock = ref(30)
 
 const diseaseOptions = ['高血压', '2型糖尿病', '高血脂', '冠心病', '心律不齐', '甲状腺疾病', '痛风', '哮喘', '其他']
-const timeOptions = ['晨起 7:00', '早餐后 8:00', '午餐后 14:30', '晚餐后 18:30', '晚间 21:00']
 const condOptions = ['空腹', '餐后30分钟', '睡前', '无要求']
 
 onLoad(() => {
@@ -153,11 +156,11 @@ const toggleDisease = (d: string) => {
   }
 }
 
-const toggleTime = (t: string) => {
-  if (medTimes.value.includes(t)) {
-    medTimes.value = medTimes.value.filter(x => x !== t)
-  } else {
+const addTime = (e: any) => {
+  const t = e.detail.value // "HH:MM" 格式
+  if (t && !medTimes.value.includes(t)) {
     medTimes.value.push(t)
+    medTimes.value.sort()
   }
 }
 
@@ -275,6 +278,19 @@ const completeOnboarding = () => {
   border-radius: 24rpx; font-size: 24rpx;
 }
 .time-btn.selected { background: #e6f7f0; border-color: #0b9d6a; color: #0b9d6a; font-weight: 600; }
+
+/* 时间列表 */
+.time-list { display: flex; flex-wrap: wrap; gap: 12rpx; align-items: center; }
+.time-tag {
+  display: flex; align-items: center; gap: 8rpx;
+  padding: 14rpx 24rpx; background: #e6f7f0; border: 2rpx solid #0b9d6a;
+  border-radius: 24rpx; font-size: 26rpx; color: #0b9d6a; font-weight: 600;
+}
+.time-del { font-size: 24rpx; color: #9ca3af; margin-left: 4rpx; }
+.time-add {
+  padding: 14rpx 24rpx; background: #f4f6f8; border: 2rpx dashed #d1d5db;
+  border-radius: 24rpx; font-size: 26rpx; color: #6b7280;
+}
 
 /* 条件选择 */
 .cond-btn {

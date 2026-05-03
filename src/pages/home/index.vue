@@ -85,30 +85,30 @@
           <text class="prog-text">已完成 {{ doneCount }}/{{ totalMeds }} 次服药</text>
         </view>
 
-        <!-- 药品卡片 -->
-        <view v-for="[key, slot] in slotEntries" :key="key">
-          <view v-if="getSlotMeds(key).length > 0" class="time-section">
-            <text class="time-period">{{ slot.icon }} {{ slot.label }}</text>
-            <view v-for="med in getSlotMeds(key)" :key="med.id + '_' + slot.hour" class="med-card" :class="getCardClass(med, slot)">
+        <!-- 药品卡片（按时间动态分组） -->
+        <view v-for="time in timeSlots" :key="time">
+          <view v-if="getSlotMeds(time).length > 0" class="time-section">
+            <text class="time-period">{{ getTimeIcon(time) }} {{ getTimeLabel(time) }}</text>
+            <view v-for="med in getSlotMeds(time)" :key="med.id + '_' + time" class="med-card" :class="getCardClass(med, time)">
               <view class="mc-left">
                 <text class="mc-name">{{ med.name }}</text>
                 <text class="mc-detail">{{ med.dosage }} · {{ med.condition }}</text>
                 <text class="mc-disease">{{ med.disease }}</text>
               </view>
               <!-- 已服用 -->
-              <view v-if="isDone(med, slot)" class="mc-right">
-                <text class="mc-status-done">✓ {{ getDoneTime(med, slot) }}</text>
-                <text v-if="isToday" class="btn-undo" @click="handleUndo(med, slot)">撤回</text>
+              <view v-if="isDone(med, time)" class="mc-right">
+                <text class="mc-status-done">✓ {{ getDoneTime(med, time) }}</text>
+                <text v-if="isToday" class="btn-undo" @click="handleUndo(med, time)">撤回</text>
               </view>
               <!-- 已跳过 -->
-              <view v-else-if="isSkipped(med, slot)" class="mc-right">
+              <view v-else-if="isSkipped(med, time)" class="mc-right">
                 <text class="mc-status-skip">已跳过</text>
-                <text v-if="isToday" class="btn-undo" @click="handleUndo(med, slot)">撤回</text>
+                <text v-if="isToday" class="btn-undo" @click="handleUndo(med, time)">撤回</text>
               </view>
               <!-- 待服用（仅今天） -->
               <view v-else-if="isToday" class="mc-actions">
-                <button class="btn-take" @click="handleTake(med, slot)">✓ 已服用</button>
-                <button class="btn-skip" @click="handleSkip(med, slot)">跳过</button>
+                <button class="btn-take" @click="handleTake(med, time)">✓ 已服用</button>
+                <button class="btn-skip" @click="handleSkip(med, time)">跳过</button>
               </view>
               <!-- 非今天未服用 -->
               <view v-else class="mc-right">
@@ -119,16 +119,69 @@
         </view>
       </view>
     </view>
+    <!-- 添加药品弹窗 -->
+    <view v-if="showAddMed" class="modal-mask" @click.self="showAddMed = false">
+      <view class="modal-box">
+        <text class="modal-title">💊 添加药品</text>
+
+        <view class="form-item">
+          <text class="label">药品名称</text>
+          <input class="ipt" :value="newMed.name" @input="newMed.name = $event.detail.value" placeholder="如：氨氯地平片" />
+        </view>
+
+        <view class="form-item">
+          <text class="label">单次剂量</text>
+          <input class="ipt" :value="newMed.dosage" @input="newMed.dosage = $event.detail.value" placeholder="如：5mg × 1片" />
+        </view>
+
+        <view class="form-item">
+          <text class="label">什么时候吃</text>
+          <view class="time-list">
+            <view v-for="(t, i) in newMed.times" :key="i" class="time-tag">
+              <text>{{ t }}</text>
+              <text class="time-del" @click="newMed.times.splice(i, 1)">✕</text>
+            </view>
+            <picker mode="time" @change="addNewMedTime">
+              <view class="time-add">+ 添加时间</view>
+            </picker>
+          </view>
+        </view>
+
+        <view class="form-item">
+          <text class="label">服用条件</text>
+          <view class="picker-row">
+            <view v-for="c in condOptions" :key="c" class="cond-btn" :class="{ selected: newMed.condition === c }" @click="newMed.condition = c">
+              <text>{{ c }}</text>
+            </view>
+          </view>
+        </view>
+
+        <view class="form-item">
+          <text class="label">治什么病</text>
+          <input class="ipt" :value="newMed.disease" @input="newMed.disease = $event.detail.value" placeholder="如：高血压" />
+        </view>
+
+        <view class="form-item">
+          <text class="label">库存（片）</text>
+          <input class="ipt" type="number" :value="String(newMed.stock)" @input="newMed.stock = Number($event.detail.value)" placeholder="30" />
+        </view>
+
+        <view class="modal-btns">
+          <button class="btn-cancel" @click="showAddMed = false">取消</button>
+          <button class="btn-confirm" @click="submitNewMed">确认添加</button>
+        </view>
+      </view>
+    </view>
   </view>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { useUserStore } from '../../stores/user'
 import { useMedicationsStore } from '../../stores/medications'
 import { useRecordsStore } from '../../stores/records'
-import { getGreeting, getTodayStr, getDateRange, TIME_SLOTS, getMedKey } from '../../utils/date'
+import { getGreeting, getTodayStr, getDateRange, getMedKey, normalizeTime, getHourFromTime, getTimeIcon, getTimeLabel, collectTimeSlots } from '../../utils/date'
 import AgentReminder from '../../components/agent-reminder.vue'
 
 const userStore = useUserStore()
@@ -136,6 +189,42 @@ const medsStore = useMedicationsStore()
 const recordsStore = useRecordsStore()
 
 const showAddMed = ref(false)
+const condOptions = ['空腹', '餐后30分钟', '睡前', '无要求']
+const newMed = reactive({ name: '', dosage: '', times: [] as string[], condition: '空腹', disease: '', stock: 30 })
+
+const addNewMedTime = (e: any) => {
+  const t = e.detail.value
+  if (t && !newMed.times.includes(t)) {
+    newMed.times.push(t)
+    newMed.times.sort()
+  }
+}
+
+const submitNewMed = async () => {
+  if (!newMed.name) { uni.showToast({ title: '请输入药品名称', icon: 'none' }); return }
+  if (!newMed.dosage) { uni.showToast({ title: '请输入剂量', icon: 'none' }); return }
+  if (newMed.times.length === 0) { uni.showToast({ title: '请添加服药时间', icon: 'none' }); return }
+
+  const userId = userStore.user?.id
+  if (!userId) return
+
+  await medsStore.add(userId, {
+    name: newMed.name,
+    dosage: newMed.dosage,
+    frequency: newMed.times.length,
+    times: [...newMed.times],
+    condition: newMed.condition,
+    disease: newMed.disease,
+    stock_count: newMed.stock,
+    daily_usage: newMed.times.length,
+    note: ''
+  })
+
+  uni.showToast({ title: '添加成功', icon: 'success' })
+  showAddMed.value = false
+  Object.assign(newMed, { name: '', dosage: '', times: [], condition: '空腹', disease: '', stock: 30 })
+}
+
 const greeting = getGreeting()
 const today = getTodayStr()
 const selectedDate = ref(today)
@@ -155,27 +244,11 @@ const doneCount = computed(() => {
 
 const activeRecords = computed(() => isToday.value ? records.value : dateRecords.value)
 
-const slotEntries = Object.entries(TIME_SLOTS)
+// 动态时间段：从药品里收集所有时间点
+const timeSlots = computed(() => collectTimeSlots(medications.value))
 const totalMeds = computed(() => medications.value.reduce((sum, m) => sum + (m.times?.length || 1), 0))
 const progressPct = computed(() => totalMeds.value > 0 ? Math.round(doneCount.value / totalMeds.value * 100) : 0)
 
-// 库存最紧张的药
-const minDays = computed(() => {
-  let min = 999
-  medications.value.forEach(m => {
-    const days = m.stock_count > 0 ? Math.floor(m.stock_count / (m.daily_usage || 1)) : 0
-    if (days < min) min = days
-  })
-  return min
-})
-const minDrugName = computed(() => {
-  let min = 999, name = ''
-  medications.value.forEach(m => {
-    const days = m.stock_count > 0 ? Math.floor(m.stock_count / (m.daily_usage || 1)) : 0
-    if (days < min) { min = days; name = m.name }
-  })
-  return name
-})
 const urgentMeds = computed(() => medications.value.filter(m => {
   const days = m.stock_count > 0 ? Math.floor(m.stock_count / (m.daily_usage || 1)) : 0
   return days <= 7
@@ -183,19 +256,31 @@ const urgentMeds = computed(() => medications.value.filter(m => {
 const nextTimeLabel = computed(() => {
   if (doneCount.value >= totalMeds.value && totalMeds.value > 0) return '全部完成'
   const currentHour = new Date().getHours() + new Date().getMinutes() / 60
-  for (const [key, slot] of slotEntries) {
-    const hasMeds = medications.value.some(m => m.times?.includes(key))
-    if (hasMeds && slot.hour > currentHour) return slot.time
+  for (const t of timeSlots.value) {
+    if (getHourFromTime(t) > currentHour) {
+      // 检查这个时间有没有未打卡的药
+      const hasPending = medications.value.some(m => {
+        const times = m.times?.map((x: string) => normalizeTime(x)) || []
+        if (!times.includes(t)) return false
+        const key = getMedKey(m.name, t)
+        return !activeRecords.value[key]
+      })
+      if (hasPending) return t
+    }
   }
   return '待打卡'
 })
 
-const getSlotMeds = (key: string) => medications.value.filter(m => m.times?.includes(key))
-const getRecordKey = (med: any, slot: any) => getMedKey(med.name, slot.hour)
-const isDone = (med: any, slot: any) => activeRecords.value[getRecordKey(med, slot)]?.startsWith('done_')
-const isSkipped = (med: any, slot: any) => activeRecords.value[getRecordKey(med, slot)]?.startsWith('skip_')
-const getDoneTime = (med: any, slot: any) => activeRecords.value[getRecordKey(med, slot)]?.replace('done_', '') || ''
-const getCardClass = (med: any, slot: any) => isDone(med, slot) ? 'done' : isSkipped(med, slot) ? 'skipped' : ''
+// 获取某个时间段的药品
+const getSlotMeds = (time: string) => medications.value.filter(m => {
+  const times = m.times?.map((x: string) => normalizeTime(x)) || []
+  return times.includes(time)
+})
+const getRecordKey = (med: any, time: string) => getMedKey(med.name, time)
+const isDone = (med: any, time: string) => activeRecords.value[getRecordKey(med, time)]?.startsWith('done_')
+const isSkipped = (med: any, time: string) => activeRecords.value[getRecordKey(med, time)]?.startsWith('skip_')
+const getDoneTime = (med: any, time: string) => activeRecords.value[getRecordKey(med, time)]?.replace('done_', '') || ''
+const getCardClass = (med: any, time: string) => isDone(med, time) ? 'done' : isSkipped(med, time) ? 'skipped' : ''
 
 const onDatePick = (e: any) => {
   const dateStr = e.detail.value
@@ -225,25 +310,25 @@ const switchDate = async (dateStr: string) => {
   }
 }
 
-const handleTake = async (med: any, slot: any) => {
+const handleTake = async (med: any, time: string) => {
   const userId = userStore.user?.id
   if (!userId) return
-  await recordsStore.takeMed(userId, med.id, med.name, slot.hour)
+  await recordsStore.takeMed(userId, med.id, med.name, time)
   await medsStore.deductStock(userId, med.id)
   uni.showToast({ title: '服药已记录', icon: 'success' })
 }
 
-const handleSkip = async (med: any, slot: any) => {
+const handleSkip = async (med: any, time: string) => {
   const userId = userStore.user?.id
   if (!userId) return
-  await recordsStore.skipMed(userId, med.id, med.name, slot.hour, '手动跳过')
+  await recordsStore.skipMed(userId, med.id, med.name, time, '手动跳过')
   uni.showToast({ title: '已跳过', icon: 'none' })
 }
 
-const handleUndo = async (med: any, slot: any) => {
+const handleUndo = async (med: any, time: string) => {
   const userId = userStore.user?.id
   if (!userId) return
-  await recordsStore.undoMed(userId, med.id, med.name, slot.hour)
+  await recordsStore.undoMed(userId, med.id, med.name, time)
   await medsStore.restoreStock(userId, med.id)
   uni.showToast({ title: '已撤回', icon: 'none' })
 }
@@ -329,4 +414,22 @@ onShow(async () => {
 .btn-take { padding: 16rpx 24rpx; background: #0b9d6a; color: #fff; border-radius: 12rpx; font-size: 26rpx; font-weight: 600; border: none; }
 .btn-skip { padding: 16rpx 24rpx; background: #f4f6f8; color: #6b7280; border-radius: 12rpx; font-size: 26rpx; border: none; }
 .btn-primary { width: 100%; padding: 24rpx; background: #0b9d6a; color: #fff; border-radius: 16rpx; font-size: 32rpx; font-weight: 600; border: none; }
+
+/* 弹窗 */
+.modal-mask { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 999; display: flex; align-items: center; justify-content: center; }
+.modal-box { width: 90%; max-height: 85vh; background: #fff; border-radius: 24rpx; padding: 40rpx 32rpx; overflow-y: auto; }
+.modal-title { font-size: 36rpx; font-weight: 700; display: block; text-align: center; margin-bottom: 32rpx; }
+.form-item { margin-bottom: 24rpx; }
+.label { font-size: 26rpx; font-weight: 600; color: #374151; display: block; margin-bottom: 10rpx; }
+.ipt { width: 100%; padding: 20rpx 24rpx; font-size: 28rpx; background: #f4f6f8; border: 2rpx solid #e5e7eb; border-radius: 16rpx; height: 80rpx; }
+.picker-row { display: flex; gap: 12rpx; flex-wrap: wrap; }
+.cond-btn { padding: 14rpx 24rpx; background: #f4f6f8; border: 2rpx solid #e5e7eb; border-radius: 24rpx; font-size: 24rpx; }
+.cond-btn.selected { background: #e6f7f0; border-color: #0b9d6a; color: #0b9d6a; font-weight: 600; }
+.time-list { display: flex; flex-wrap: wrap; gap: 12rpx; align-items: center; }
+.time-tag { display: flex; align-items: center; gap: 8rpx; padding: 14rpx 24rpx; background: #e6f7f0; border: 2rpx solid #0b9d6a; border-radius: 24rpx; font-size: 26rpx; color: #0b9d6a; font-weight: 600; }
+.time-del { font-size: 24rpx; color: #9ca3af; margin-left: 4rpx; }
+.time-add { padding: 14rpx 24rpx; background: #f4f6f8; border: 2rpx dashed #d1d5db; border-radius: 24rpx; font-size: 26rpx; color: #6b7280; }
+.modal-btns { display: flex; gap: 16rpx; margin-top: 32rpx; }
+.btn-cancel { flex: 1; padding: 22rpx; background: #f4f6f8; color: #6b7280; border: none; border-radius: 16rpx; font-size: 28rpx; }
+.btn-confirm { flex: 2; padding: 22rpx; background: #0b9d6a; color: #fff; border: none; border-radius: 16rpx; font-size: 28rpx; font-weight: 600; }
 </style>

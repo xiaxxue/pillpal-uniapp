@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { supabase } from '../utils/supabase'
-import { getTodayStr, getTimeStr, getMedKey } from '../utils/date'
+import { getTodayStr, getTimeStr, getMedKey, normalizeTime } from '../utils/date'
 
 export const useRecordsStore = defineStore('records', () => {
   const records = ref<Record<string, string>>({})
@@ -41,44 +41,47 @@ export const useRecordsStore = defineStore('records', () => {
     return result
   }
 
-  const takeMed = async (userId: string, medId: string, medName: string, timeSlot: number) => {
+  const takeMed = async (userId: string, medId: string, medName: string, timeSlot: string | number) => {
     if (!userId || !medId) return
     const dateStr = getTodayStr()
     const timeStr = getTimeStr()
-    const key = getMedKey(medName, timeSlot)
+    const slot = normalizeTime(String(timeSlot))
+    const key = getMedKey(medName, slot)
     records.value = { ...records.value, [key]: 'done_' + timeStr }
 
     await supabase.from('daily_records').upsert({
       user_id: userId, medication_id: medId,
-      record_date: dateStr, time_slot: String(timeSlot),
+      record_date: dateStr, time_slot: slot,
       status: 'done', taken_at: new Date().toISOString()
     }, { onConflict: 'user_id, medication_id, record_date, time_slot' })
   }
 
-  const skipMed = async (userId: string, medId: string, medName: string, timeSlot: number, reason: string) => {
+  const skipMed = async (userId: string, medId: string, medName: string, timeSlot: string | number, reason: string) => {
     if (!userId || !medId) return
     const dateStr = getTodayStr()
-    const key = getMedKey(medName, timeSlot)
+    const slot = normalizeTime(String(timeSlot))
+    const key = getMedKey(medName, slot)
     records.value = { ...records.value, [key]: 'skip_' + reason }
 
     await supabase.from('daily_records').upsert({
       user_id: userId, medication_id: medId,
-      record_date: dateStr, time_slot: String(timeSlot),
+      record_date: dateStr, time_slot: slot,
       status: 'skip', skip_reason: reason
     }, { onConflict: 'user_id, medication_id, record_date, time_slot' })
   }
 
-  const undoMed = async (userId: string, medId: string, medName: string, timeSlot: number) => {
+  const undoMed = async (userId: string, medId: string, medName: string, timeSlot: string | number) => {
     if (!userId || !medId) return
     const dateStr = getTodayStr()
-    const key = getMedKey(medName, timeSlot)
+    const slot = normalizeTime(String(timeSlot))
+    const key = getMedKey(medName, slot)
     const newRecords = { ...records.value }
     delete newRecords[key]
     records.value = newRecords
 
     await supabase.from('daily_records').delete()
       .eq('user_id', userId).eq('medication_id', medId)
-      .eq('record_date', dateStr).eq('time_slot', String(timeSlot))
+      .eq('record_date', dateStr).eq('time_slot', slot)
   }
 
   const doneCount = computed(() => Object.values(records.value).filter(v => v.startsWith('done_')).length)

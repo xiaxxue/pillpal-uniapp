@@ -13,7 +13,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { TIME_SLOTS, getMedKey, getTodayStr } from '../utils/date'
+import { normalizeTime, getHourFromTime, getMedKey, getTodayStr } from '../utils/date'
 
 const props = defineProps<{
   medications: any[]
@@ -33,11 +33,11 @@ const reminders = computed(() => {
   props.medications.forEach(med => {
     if (!med.times) return
     med.times.forEach((t: string) => {
-      const slot = TIME_SLOTS[t]
-      if (!slot) return
+      const time = normalizeTime(t)
+      const hour = getHourFromTime(time)
       // 只检查已过去的时段（当前时间超过该时段1小时以上）
-      if (currentHour <= slot.hour + 1) return
-      const key = getMedKey(med.name, slot.hour)
+      if (currentHour <= hour + 1) return
+      const key = getMedKey(med.name, time)
       if (!props.records[key]) {
         missedCount++
         if (!missedNames.includes(med.name)) missedNames.push(med.name)

@@ -67,7 +67,7 @@ import { onShow } from '@dcloudio/uni-app'
 import { useUserStore } from '../../stores/user'
 import { useMedicationsStore } from '../../stores/medications'
 import { useRecordsStore } from '../../stores/records'
-import { TIME_SLOTS, getMedKey } from '../../utils/date'
+import { normalizeTime, getTimeLabel, getMedKey } from '../../utils/date'
 import { runAgent, buildUserProfile, buildRealtimeData, manageHistory } from '../../utils/ai'
 import type { AgentStep } from '../../utils/ai'
 
@@ -142,12 +142,12 @@ const processQuestion = async (text: string) => {
       medications.value.forEach(m => {
         if (!m.times) return
         m.times.forEach((t: string) => {
-          const slot = TIME_SLOTS[t]
-          if (!slot) return
-          const key = getMedKey(m.name, slot.hour)
+          const time = normalizeTime(t)
+          const label = getTimeLabel(time)
+          const key = getMedKey(m.name, time)
           const r = records.value[key]
           const status = r?.startsWith('done_') ? '✅已服(' + r.replace('done_', '') + ')' : r?.startsWith('skip_') ? '⏭已跳过' : '⏳待服用'
-          result += `${m.name} ${slot.label} ${status}\n`
+          result += `${m.name} ${label} ${status}\n`
         })
       })
       return result
@@ -218,16 +218,10 @@ const processQuestion = async (text: string) => {
 
 // === Function Calling 执行函数 ===
 
-const getSlotLabel = (hour: number): string => {
-  const map: Record<number, string> = { 7: '晨起', 8: '早餐后', 14.5: '午餐后', 18.5: '晚餐后', 21: '晚间' }
-  return map[hour] || String(hour)
-}
-
 // 执行打卡
-const executeTakeMed = async (userId: string, medName: string, timeSlots: number[]): Promise<string> => {
+const executeTakeMed = async (userId: string, medName: string, timeSlots: string[]): Promise<string> => {
   const results: string[] = []
 
-  // 找药品
   const matchedMeds = medName === 'all'
     ? medications.value
     : medications.value.filter(m => m.name.includes(medName) || medName.includes(m.name))
@@ -237,17 +231,16 @@ const executeTakeMed = async (userId: string, medName: string, timeSlots: number
   for (const med of matchedMeds) {
     if (!med.times) continue
     for (const t of med.times) {
-      const slot = TIME_SLOTS[t]
-      if (!slot) continue
+      const time = normalizeTime(t)
 
       // 如果指定了时段，只打指定时段
-      if (timeSlots.length > 0 && !timeSlots.includes(slot.hour)) continue
+      if (timeSlots.length > 0 && !timeSlots.some(s => normalizeTime(String(s)) === time)) continue
 
-      const key = getMedKey(med.name, slot.hour)
+      const key = getMedKey(med.name, time)
       if (!records.value[key]) {
-        await recordsStore.takeMed(userId, med.id, med.name, slot.hour)
+        await recordsStore.takeMed(userId, med.id, med.name, time)
         await medsStore.deductStock(userId, med.id)
-        results.push(`${med.name}（${getSlotLabel(slot.hour)}）`)
+        results.push(`${med.name}（${getTimeLabel(time)}）`)
       }
     }
   }
@@ -258,7 +251,7 @@ const executeTakeMed = async (userId: string, medName: string, timeSlots: number
 }
 
 // 执行跳过
-const executeSkipMed = async (userId: string, medName: string, timeSlots: number[], reason: string): Promise<string> => {
+const executeSkipMed = async (userId: string, medName: string, timeSlots: string[], reason: string): Promise<string> => {
   const results: string[] = []
   const matchedMeds = medName === 'all'
     ? medications.value
@@ -267,13 +260,12 @@ const executeSkipMed = async (userId: string, medName: string, timeSlots: number
   for (const med of matchedMeds) {
     if (!med.times) continue
     for (const t of med.times) {
-      const slot = TIME_SLOTS[t]
-      if (!slot) continue
-      if (timeSlots.length > 0 && !timeSlots.includes(slot.hour)) continue
-      const key = getMedKey(med.name, slot.hour)
+      const time = normalizeTime(t)
+      if (timeSlots.length > 0 && !timeSlots.some(s => normalizeTime(String(s)) === time)) continue
+      const key = getMedKey(med.name, time)
       if (!records.value[key]) {
-        await recordsStore.skipMed(userId, med.id, med.name, slot.hour, reason)
-        results.push(`${med.name}（${getSlotLabel(slot.hour)}）`)
+        await recordsStore.skipMed(userId, med.id, med.name, time, reason)
+        results.push(`${med.name}（${getTimeLabel(time)}）`)
       }
     }
   }
@@ -283,7 +275,7 @@ const executeSkipMed = async (userId: string, medName: string, timeSlots: number
 }
 
 // 执行撤回
-const executeUndoMed = async (userId: string, medName: string, timeSlots: number[]): Promise<string> => {
+const executeUndoMed = async (userId: string, medName: string, timeSlots: string[]): Promise<string> => {
   const results: string[] = []
 
   const matchedMeds = medName === 'all'
@@ -293,15 +285,14 @@ const executeUndoMed = async (userId: string, medName: string, timeSlots: number
   for (const med of matchedMeds) {
     if (!med.times) continue
     for (const t of med.times) {
-      const slot = TIME_SLOTS[t]
-      if (!slot) continue
-      if (timeSlots.length > 0 && !timeSlots.includes(slot.hour)) continue
+      const time = normalizeTime(t)
+      if (timeSlots.length > 0 && !timeSlots.some(s => normalizeTime(String(s)) === time)) continue
 
-      const key = getMedKey(med.name, slot.hour)
+      const key = getMedKey(med.name, time)
       if (records.value[key]?.startsWith('done_')) {
-        await recordsStore.undoMed(userId, med.id, med.name, slot.hour)
+        await recordsStore.undoMed(userId, med.id, med.name, time)
         await medsStore.restoreStock(userId, med.id)
-        results.push(`${med.name}（${getSlotLabel(slot.hour)}）`)
+        results.push(`${med.name}（${getTimeLabel(time)}）`)
       }
     }
   }
