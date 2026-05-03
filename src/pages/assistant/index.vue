@@ -176,12 +176,50 @@ const processQuestion = async (text: string) => {
     }
   }
 
-  // 撤回打卡：如"撤回打卡"、"氨氯地平没吃错了"
-  if (/撤回|取消打卡|打错了|没吃错/.test(text) && userId) {
+  // 撤回打卡
+  if (/撤回|取消|撤销|打错|没吃|还没吃|没有吃|取消打卡|恢复/.test(text) && !/没吃完|没吃过/.test(text) && userId) {
     const medName = matchMedName(text)
-    if (medName) {
+    const mentionedSlots = matchTimeSlots(text)
+
+    if (/全部|所有/.test(text)) {
+      // 撤回全部
+      let count = 0
+      for (const med of medications.value) {
+        if (!med.times) continue
+        for (const t of med.times) {
+          const slot = TIME_SLOTS[t]
+          if (!slot) continue
+          const key = getMedKey(med.name, slot.hour)
+          if (records.value[key]?.startsWith('done_')) {
+            await recordsStore.undoMed(userId, med.id, med.name, slot.hour)
+            await medsStore.restoreStock(userId, med.id)
+            count++
+          }
+        }
+      }
+      actionResult = count > 0 ? `已撤回全部 ${count} 次打卡记录` : '没有需要撤回的打卡记录'
+    } else if (mentionedSlots.length > 0) {
+      // 撤回指定时段
+      let count = 0
+      for (const med of medications.value) {
+        if (!med.times) continue
+        for (const t of med.times) {
+          const slot = TIME_SLOTS[t]
+          if (!slot || !mentionedSlots.includes(slot.hour)) continue
+          const key = getMedKey(med.name, slot.hour)
+          if (records.value[key]?.startsWith('done_')) {
+            await recordsStore.undoMed(userId, med.id, med.name, slot.hour)
+            await medsStore.restoreStock(userId, med.id)
+            count++
+          }
+        }
+      }
+      actionResult = count > 0 ? `已撤回 ${count} 次打卡（${mentionedSlots.map(h => getSlotLabel(h)).join('、')}）` : '这些时段没有打卡记录'
+    } else if (medName) {
       const result = await doUndoMed(userId, medName)
       actionResult = result
+    } else {
+      actionResult = '请告诉我要撤回哪个药或哪个时段，如"撤回晨起的"或"撤回氨氯地平"'
     }
   }
 
