@@ -160,7 +160,12 @@ export function buildRealtimeData(medications: any[], records: Record<string, st
   const skipKeys = Object.keys(records).filter(k => records[k]?.startsWith('skip_'))
   const totalSlots = medications.reduce((sum, m) => sum + (m.times?.length || 1), 0)
 
-  let data = `\n【今日状态】${totalSlots}次药中已服${doneKeys.length}次`
+  const now = new Date()
+  const dateStr = now.getFullYear() + '年' + (now.getMonth() + 1) + '月' + now.getDate() + '日'
+  const timeStr = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0')
+  const weekNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+  let data = `\n【当前时间】${dateStr} ${weekNames[now.getDay()]} ${timeStr}`
+  data += `\n【今日状态】${totalSlots}次药中已服${doneKeys.length}次`
   if (skipKeys.length > 0) data += `，跳过${skipKeys.length}次`
 
   if (doneKeys.length > 0) {
