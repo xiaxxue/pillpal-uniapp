@@ -6,7 +6,7 @@
       <text class="header-desc">{{ mode === 'login' ? '登录后继续管理用药' : '注册后开始使用 PillPal' }}</text>
     </view>
 
-    <view class="form" v-if="!isLoading">
+    <view class="form" v-if="!isLoading && mode !== 'forgot'">
       <view v-if="mode === 'signup'" class="form-item">
         <text class="label">昵称</text>
         <input class="ipt" :value="name" @input="name = $event.detail.value" placeholder="如：张叔叔" />
@@ -33,6 +33,25 @@
         </text>
       </view>
 
+      <view v-if="mode === 'login'" class="forgot-area" @click="mode = 'forgot'">
+        <text class="forgot-text">忘记密码？</text>
+      </view>
+
+      <!-- 忘记密码 -->
+      <view v-if="mode === 'forgot'" class="forgot-form">
+        <text class="forgot-title">🔐 重置密码</text>
+        <text class="forgot-desc">输入你的邮箱，我们会发送一封重置密码的邮件</text>
+        <view class="form-item">
+          <input class="ipt" :value="resetEmail" @input="resetEmail = $event.detail.value" placeholder="请输入注册邮箱" />
+        </view>
+        <button class="btn-submit" @click="handleResetPassword">发送重置邮件</button>
+        <view class="switch-area">
+          <text class="switch-text" @click="mode = 'login'">
+            <text class="switch-link">← 返回登录</text>
+          </text>
+        </view>
+      </view>
+
       <view v-if="error" class="error-box">
         <text class="error-icon">⚠</text>
         <text class="error-text">{{ error }}</text>
@@ -53,6 +72,7 @@ import { onLoad } from '@dcloudio/uni-app'
 import { useUserStore } from '../../stores/user'
 import { useMedicationsStore } from '../../stores/medications'
 import { useRecordsStore } from '../../stores/records'
+import { supabase } from '../../utils/supabase'
 
 const userStore = useUserStore()
 const medsStore = useMedicationsStore()
@@ -65,6 +85,7 @@ const name = ref('')
 const error = ref('')
 const isLoading = ref(false)
 const role = ref('patient')
+const resetEmail = ref('')
 
 onLoad((options) => {
   if (options?.role) role.value = options.role
@@ -73,6 +94,22 @@ onLoad((options) => {
 const toggleMode = () => {
   mode.value = mode.value === 'login' ? 'signup' : 'login'
   error.value = ''
+}
+
+const handleResetPassword = async () => {
+  if (!resetEmail.value) { error.value = '请输入邮箱'; return }
+  error.value = ''
+  isLoading.value = true
+  const { error: err } = await supabase.auth.resetPasswordForEmail(resetEmail.value, {
+    redirectTo: 'http://localhost:5173'
+  })
+  isLoading.value = false
+  if (err) {
+    error.value = err.message
+  } else {
+    uni.showToast({ title: '重置邮件已发送，请查收', icon: 'none', duration: 3000 })
+    mode.value = 'login'
+  }
 }
 
 const handleSubmit = async () => {
@@ -164,4 +201,11 @@ const handleSubmit = async () => {
 .loading-spinner { font-size: 64rpx; }
 .loading-text { font-size: 28rpx; color: #6b7280; }
 .error-icon { font-size: 32rpx; }
+
+.forgot-area { text-align: center; margin-top: 16rpx; }
+.forgot-text { font-size: 26rpx; color: #9ca3af; text-decoration: underline; }
+
+.forgot-form { margin-top: 40rpx; }
+.forgot-title { font-size: 36rpx; font-weight: 700; display: block; text-align: center; margin-bottom: 12rpx; }
+.forgot-desc { font-size: 26rpx; color: #6b7280; display: block; text-align: center; margin-bottom: 32rpx; line-height: 1.5; }
 </style>
