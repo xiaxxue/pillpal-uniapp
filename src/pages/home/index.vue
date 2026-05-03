@@ -3,10 +3,12 @@
     <!-- 顶栏 -->
     <view class="top-bar">
       <view class="greeting-row">
-        <view class="avatar">{{ displayName?.charAt(0) || '你' }}</view>
-        <view>
+        <view class="avatar-wrap">
+          <text class="avatar">{{ displayName?.charAt(0) || '你' }}</text>
+        </view>
+        <view class="greeting-info">
           <text class="greeting-name">{{ greeting }}，{{ displayName }}</text>
-          <text class="greeting-sub">正在服用 {{ medications.length }} 种药</text>
+          <text class="greeting-sub">正在服用 {{ medications.length }} 种药 · PillPal</text>
         </view>
       </view>
     </view>
@@ -260,11 +262,13 @@ onShow(async () => {
 
 <style scoped>
 .page { background: #f4f6f8; min-height: 100vh; }
-.top-bar { background: linear-gradient(135deg, #0b9d6a, #0abf7f); color: #fff; padding: 32rpx; border-radius: 0 0 32rpx 32rpx; }
+.top-bar { background: linear-gradient(135deg, #0b9d6a 0%, #0abf7f 50%, #06d6a0 100%); color: #fff; padding: 36rpx 32rpx; border-radius: 0 0 36rpx 36rpx; box-shadow: 0 4rpx 20rpx rgba(11,157,106,0.3); }
 .greeting-row { display: flex; align-items: center; gap: 20rpx; }
-.avatar { width: 80rpx; height: 80rpx; border-radius: 50%; background: rgba(255,255,255,0.25); display: flex; align-items: center; justify-content: center; font-size: 36rpx; font-weight: 600; }
-.greeting-name { font-size: 34rpx; font-weight: 600; display: block; }
-.greeting-sub { font-size: 24rpx; opacity: 0.85; display: block; margin-top: 4rpx; }
+.avatar-wrap { width: 88rpx; height: 88rpx; border-radius: 50%; background: rgba(255,255,255,0.2); display: flex; align-items: center; justify-content: center; border: 3rpx solid rgba(255,255,255,0.3); }
+.avatar { font-size: 38rpx; font-weight: 700; line-height: 88rpx; text-align: center; }
+.greeting-info { flex: 1; }
+.greeting-name { font-size: 34rpx; font-weight: 700; display: block; }
+.greeting-sub { font-size: 22rpx; opacity: 0.8; display: block; margin-top: 6rpx; }
 .content { padding: 24rpx; }
 
 .empty-state { text-align: center; padding: 120rpx 48rpx; }
