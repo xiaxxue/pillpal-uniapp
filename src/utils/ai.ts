@@ -78,26 +78,20 @@ const tools = [
   }
 ]
 
-// 调用 AI（支持 function calling）
-export async function askAI(userMessage: string, context: string): Promise<{ text: string; functionCall?: { name: string; args: any } }> {
+// 调用 AI（支持 function calling + 对话历史）
+export async function askAI(userMessage: string, context: string, history: { role: string; content: string }[] = []): Promise<{ text: string; functionCall?: { name: string; args: any } }> {
   try {
-    const response = await fetch(DEEPSEEK_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + DEEPSEEK_API_KEY
-      },
-      body: JSON.stringify({
-        model: 'deepseek-chat',
-        messages: [
-          {
-            role: 'system',
-            content: `你是"小派"，PillPal 用药管家的 AI 助手。
+    // 构建消息列表：system + 历史对话 + 当前问题
+    const messages: any[] = [
+      {
+        role: 'system',
+        content: `你是"小派"，PillPal 用药管家的 AI 助手。
 
 你可以帮用户做以下操作：
 1. 打卡记录服药（take_med）
-2. 撤回打卡（undo_med）
-3. 修改库存（update_stock）
+2. 跳过服药（skip_med）
+3. 撤回打卡（undo_med）
+4. 修改库存（update_stock）
 
 当用户想做这些操作时，调用对应的 function。
 当用户只是问问题（查库存、问用药知识）时，直接回答，不调用 function。
@@ -107,12 +101,25 @@ export async function askAI(userMessage: string, context: string): Promise<{ tex
 - 回答简短实用
 - 涉及调药停药提醒用户咨询医生
 - 用 emoji 让回答更友好
+- 记住之前的对话内容，保持上下文连贯
 
 用户当前的用药数据：
 ${context}`
-          },
-          { role: 'user', content: userMessage }
-        ],
+      },
+      // 最近10轮对话历史
+      ...history.slice(-20),
+      { role: 'user', content: userMessage }
+    ]
+
+    const response = await fetch(DEEPSEEK_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + DEEPSEEK_API_KEY
+      },
+      body: JSON.stringify({
+        model: 'deepseek-chat',
+        messages,
         tools: tools,
         tool_choice: 'auto',
         temperature: 0.7,

@@ -112,9 +112,15 @@ const processQuestion = async (text: string) => {
     userId = userStore.user?.id
   }
 
+  // 构建对话历史
+  const history = messages.value.map(m => ({
+    role: m.role === 'user' ? 'user' : 'assistant',
+    content: m.text
+  }))
+
   // 构建上下文，让 AI 判断意图
   const context = buildContext(medications.value, records.value)
-  const aiResult = await askAI(text, context)
+  const aiResult = await askAI(text, context, history)
 
   // AI 决定要调用 function
   if (aiResult.functionCall && userId) {
