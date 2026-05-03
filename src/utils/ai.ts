@@ -44,6 +44,26 @@ const tools = [
   {
     type: 'function',
     function: {
+      name: 'skip_med',
+      description: '跳过某次服药。当用户说跳过、不吃了、今天不想吃、副作用不舒服不吃等意思时调用。',
+      parameters: {
+        type: 'object',
+        properties: {
+          med_name: { type: 'string', description: '药品名称。如果跳过全部，填"all"' },
+          time_slots: {
+            type: 'array',
+            items: { type: 'number' },
+            description: '要跳过的时段小时数。如果没指定，填空数组[]'
+          },
+          reason: { type: 'string', description: '跳过原因。如：副作用不适、忘记携带、医生建议暂停、其他' }
+        },
+        required: ['med_name', 'time_slots', 'reason']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
       name: 'update_stock',
       description: '修改药品库存数量。当用户说还有多少片、修改库存、买了药、补货等意思时调用。',
       parameters: {

@@ -124,6 +124,8 @@ const processQuestion = async (text: string) => {
 
     if (name === 'take_med') {
       actionResult = await executeTakeMed(userId, args.med_name, args.time_slots || [])
+    } else if (name === 'skip_med') {
+      actionResult = await executeSkipMed(userId, args.med_name, args.time_slots || [], args.reason || '其他')
     } else if (name === 'undo_med') {
       actionResult = await executeUndoMed(userId, args.med_name, args.time_slots || [])
     } else if (name === 'update_stock') {
@@ -185,6 +187,31 @@ const executeTakeMed = async (userId: string, medName: string, timeSlots: number
   return results.length > 0
     ? `已打卡：${results.join('、')}`
     : '这些药/时段已经打过卡了'
+}
+
+// 执行跳过
+const executeSkipMed = async (userId: string, medName: string, timeSlots: number[], reason: string): Promise<string> => {
+  const results: string[] = []
+  const matchedMeds = medName === 'all'
+    ? medications.value
+    : medications.value.filter(m => m.name.includes(medName) || medName.includes(m.name))
+
+  for (const med of matchedMeds) {
+    if (!med.times) continue
+    for (const t of med.times) {
+      const slot = TIME_SLOTS[t]
+      if (!slot) continue
+      if (timeSlots.length > 0 && !timeSlots.includes(slot.hour)) continue
+      const key = getMedKey(med.name, slot.hour)
+      if (!records.value[key]) {
+        await recordsStore.skipMed(userId, med.id, med.name, slot.hour, reason)
+        results.push(`${med.name}（${getSlotLabel(slot.hour)}）`)
+      }
+    }
+  }
+  return results.length > 0
+    ? `已跳过：${results.join('、')}，原因：${reason}`
+    : '没有需要跳过的记录'
 }
 
 // 执行撤回
