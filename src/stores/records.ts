@@ -51,7 +51,7 @@ export const useRecordsStore = defineStore('records', () => {
     await supabase.from('daily_records').upsert({
       user_id: userId, medication_id: medId,
       record_date: dateStr, time_slot: String(timeSlot),
-      status: 'done', taken_at: dateStr + 'T' + timeStr + ':00'
+      status: 'done', taken_at: new Date().toISOString()
     }, { onConflict: 'user_id, medication_id, record_date, time_slot' })
   }
 
