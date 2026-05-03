@@ -5,7 +5,9 @@ onLaunch(() => {
 });
 </script>
 
-<style>
+<style lang="scss">
+@import 'uview-plus/index.scss';
+
 /* 全局样式 */
 page {
   background: #f4f6f8;

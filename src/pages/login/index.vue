@@ -5,27 +5,30 @@
     <view v-if="!isLoading">
       <view v-if="mode === 'signup'" class="form-group">
         <text class="label">昵称</text>
-        <input class="ipt" :value="name" @input="name = $event.detail.value" placeholder="如：张叔叔" />
+        <u-input v-model="name" placeholder="如：张叔叔" border="surround" shape="circle" />
       </view>
       <view class="form-group">
         <text class="label">邮箱</text>
-        <input class="ipt" :value="email" @input="email = $event.detail.value" placeholder="请输入邮箱" />
+        <u-input v-model="email" placeholder="请输入邮箱" border="surround" shape="circle" />
       </view>
       <view class="form-group">
         <text class="label">密码</text>
-        <input class="ipt" :value="password" @input="password = $event.detail.value" password placeholder="请输入密码" />
+        <u-input v-model="password" type="password" placeholder="请输入密码" border="surround" shape="circle" />
       </view>
 
-      <button class="btn-primary" @click="handleSubmit">{{ mode === 'login' ? '登录' : '注册' }}</button>
+      <u-button type="primary" shape="circle" :customStyle="{ marginTop: '24rpx', background: '#0b9d6a' }" @click="handleSubmit">
+        {{ mode === 'login' ? '登录' : '注册' }}
+      </u-button>
 
       <view class="switch-row">
-        <text v-if="mode === 'login'" @click="mode = 'signup'; error = ''">还没有账号？立即注册</text>
-        <text v-else @click="mode = 'login'; error = ''">已有账号？去登录</text>
+        <text v-if="mode === 'login'" class="switch-text" @click="mode = 'signup'; error = ''">还没有账号？<text class="link">立即注册</text></text>
+        <text v-else class="switch-text" @click="mode = 'login'; error = ''">已有账号？<text class="link">去登录</text></text>
       </view>
     </view>
 
     <view v-else class="loading">
-      <text>处理中...</text>
+      <u-loading-icon mode="circle" color="#0b9d6a" />
+      <text class="loading-text">处理中...</text>
     </view>
 
     <text v-if="error" class="error">{{ error }}</text>
@@ -82,12 +85,10 @@ const handleSubmit = async () => {
       error.value = msg
     } else {
       uni.showToast({ title: '登录成功', icon: 'success' })
-      // 加载数据
       if (userStore.user) {
         await medsStore.fetchAll(userStore.user.id)
         await recordsStore.loadRecords(userStore.user.id)
       }
-      // 进入对应角色
       if (role.value === 'patient') {
         uni.switchTab({ url: '/pages/home/index' })
       } else {
@@ -101,12 +102,12 @@ const handleSubmit = async () => {
 <style scoped>
 .container { padding: 48rpx; background: #fff; min-height: 100vh; }
 .title { font-size: 44rpx; font-weight: 700; display: block; text-align: center; margin-bottom: 48rpx; }
-.form-group { margin-bottom: 24rpx; }
-.label { font-size: 26rpx; font-weight: 600; color: #6b7280; display: block; margin-bottom: 8rpx; }
-.ipt { width: 100%; padding: 20rpx 24rpx; border: 2rpx solid #e5e7eb; border-radius: 16rpx; font-size: 30rpx; background: #f4f6f8; height: 80rpx; }
-.btn-primary { width: 100%; padding: 24rpx; background: #0b9d6a; color: #fff; border-radius: 16rpx; font-size: 32rpx; font-weight: 600; margin-top: 24rpx; border: none; }
-.switch-row { text-align: center; margin-top: 24rpx; font-size: 26rpx; color: #6b7280; }
-.switch-row text { color: #0b9d6a; font-weight: 600; }
-.loading { text-align: center; padding: 80rpx 0; color: #6b7280; }
+.form-group { margin-bottom: 28rpx; }
+.label { font-size: 26rpx; font-weight: 600; color: #6b7280; display: block; margin-bottom: 12rpx; }
+.switch-row { text-align: center; margin-top: 32rpx; }
+.switch-text { font-size: 26rpx; color: #6b7280; }
+.link { color: #0b9d6a; font-weight: 600; }
+.loading { display: flex; flex-direction: column; align-items: center; padding: 80rpx 0; gap: 16rpx; }
+.loading-text { font-size: 28rpx; color: #6b7280; }
 .error { display: block; text-align: center; color: #e53935; font-size: 26rpx; margin-top: 24rpx; }
 </style>
