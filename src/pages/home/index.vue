@@ -55,19 +55,23 @@
 
         <!-- 日期选择器 -->
         <view class="date-nav">
-          <text class="date-arrow" @click="shiftDates(-7)">‹</text>
-          <scroll-view scroll-x class="date-scroll">
-            <view class="date-row">
-              <view v-for="d in dateRange" :key="d.dateStr"
-                class="date-item" :class="{ active: selectedDate === d.dateStr }"
-                :style="d.isFuture ? 'opacity:0.5' : ''"
-                @click="switchDate(d.dateStr)">
-                <text class="date-week">{{ d.label }}</text>
-                <text class="date-day">{{ d.day }}</text>
-              </view>
+          <view class="date-arrow" @click="shiftDates(-7)"><text>‹</text></view>
+          <view class="date-row">
+            <view v-for="d in dateRange" :key="d.dateStr"
+              class="date-item" :class="{ active: selectedDate === d.dateStr }"
+              :style="d.isFuture ? 'opacity:0.5' : ''"
+              @click="switchDate(d.dateStr)">
+              <text class="date-week">{{ d.label }}</text>
+              <text class="date-day">{{ d.day }}</text>
             </view>
-          </scroll-view>
-          <text class="date-arrow" @click="shiftDates(7)">›</text>
+          </view>
+          <view class="date-arrow" @click="shiftDates(7)"><text>›</text></view>
+        </view>
+        <!-- 日期跳转 -->
+        <view class="date-jump">
+          <picker mode="date" :value="selectedDate" @change="onDatePick">
+            <text class="date-jump-btn">📅 选择日期</text>
+          </picker>
         </view>
 
         <!-- 进度条 -->
@@ -186,6 +190,13 @@ const isSkipped = (med: any, slot: any) => activeRecords.value[getRecordKey(med,
 const getDoneTime = (med: any, slot: any) => activeRecords.value[getRecordKey(med, slot)]?.replace('done_', '') || ''
 const getCardClass = (med: any, slot: any) => isDone(med, slot) ? 'done' : isSkipped(med, slot) ? 'skipped' : ''
 
+const onDatePick = (e: any) => {
+  const dateStr = e.detail.value
+  selectedDate.value = dateStr
+  dateCenter.value = new Date(dateStr + 'T12:00:00')
+  switchDate(dateStr)
+}
+
 const shiftDates = (days: number) => {
   const d = new Date(dateCenter.value)
   d.setDate(d.getDate() + days)
@@ -278,14 +289,16 @@ onShow(async () => {
 .prog-text { font-size: 24rpx; color: #6b7280; text-align: right; margin-top: 8rpx; display: block; }
 
 /* 日期选择器 */
-.date-nav { display: flex; align-items: center; gap: 8rpx; margin-bottom: 24rpx; }
-.date-arrow { width: 48rpx; height: 48rpx; text-align: center; line-height: 48rpx; font-size: 36rpx; font-weight: 700; color: var(--text-sec, #6b7280); flex-shrink: 0; }
-.date-scroll { flex: 1; white-space: nowrap; }
-.date-row { display: flex; gap: 8rpx; }
-.date-item { display: flex; flex-direction: column; align-items: center; padding: 12rpx 20rpx; border-radius: 16rpx; min-width: 80rpx; flex-shrink: 0; }
+.date-nav { display: flex; align-items: center; gap: 0; margin-bottom: 16rpx; }
+.date-arrow { width: 56rpx; height: 56rpx; display: flex; align-items: center; justify-content: center; font-size: 40rpx; font-weight: 700; color: #6b7280; flex-shrink: 0; background: #f4f6f8; border-radius: 50%; }
+.date-arrow:active { background: #e6f7f0; color: #0b9d6a; }
+.date-row { display: flex; flex: 1; justify-content: space-between; }
+.date-item { display: flex; flex-direction: column; align-items: center; padding: 12rpx 0; border-radius: 16rpx; flex: 1; }
 .date-item.active { background: #0b9d6a; color: #fff; }
 .date-week { font-size: 22rpx; opacity: 0.7; }
 .date-day { font-size: 32rpx; font-weight: 700; margin-top: 4rpx; }
+.date-jump { text-align: center; margin-bottom: 20rpx; }
+.date-jump-btn { font-size: 24rpx; color: #0b9d6a; }
 
 .time-section { margin-bottom: 32rpx; }
 .time-period { font-size: 28rpx; font-weight: 600; color: #6b7280; display: block; margin-bottom: 16rpx; }
