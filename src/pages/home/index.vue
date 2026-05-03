@@ -98,6 +98,7 @@
               <!-- 已跳过 -->
               <view v-else-if="isSkipped(med, slot)" class="mc-right">
                 <text class="mc-status-skip">已跳过</text>
+                <text v-if="isToday" class="btn-undo" @click="handleUndo(med, slot)">撤回</text>
               </view>
               <!-- 待服用（仅今天） -->
               <view v-else-if="isToday" class="mc-actions">
