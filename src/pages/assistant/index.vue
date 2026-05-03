@@ -66,7 +66,7 @@ import { useUserStore } from '../../stores/user'
 import { useMedicationsStore } from '../../stores/medications'
 import { useRecordsStore } from '../../stores/records'
 import { TIME_SLOTS, getMedKey } from '../../utils/date'
-import { askAI, buildContext } from '../../utils/ai'
+import { askAI, askAIWithResult, buildContext } from '../../utils/ai'
 
 const userStore = useUserStore()
 const medsStore = useMedicationsStore()
@@ -108,226 +108,120 @@ const processQuestion = async (text: string) => {
 
   let userId = userStore.user?.id
   if (!userId) {
-    // 尝试重新初始化
     await userStore.init()
     userId = userStore.user?.id
   }
-  console.log('小派操作: userId=', userId, 'text=', text)
-  let actionResult = ''
 
-  // === 检测操作意图并执行 ===
-
-  // 打卡：如"帮我打卡"、"氨氯地平已经吃了"、"记录一下吃药了"
-  const matchTake = /打卡|吃了|已经服|帮我记录|标记.*服用/.test(text)
-  console.log('匹配打卡意图:', matchTake, 'userId:', !!userId)
-  if (matchTake && userId) {
-    // 识别时间段
-    const mentionedSlots = matchTimeSlots(text)
-    const medName = matchMedName(text)
-
-    if (/全部|所有/.test(text) && /都吃了|打卡/.test(text)) {
-      // 明确说"全部都吃了"才全打
-      const pending = getPendingMeds()
-      if (pending.length > 0) {
-        for (const p of pending) {
-          await doTakeMed(userId, p.name, p.hour)
-        }
-        actionResult = `已帮你打卡全部 ${pending.length} 次服药记录`
-      } else {
-        actionResult = '今天的药已经全部打过卡了'
-      }
-    } else if (mentionedSlots.length > 0) {
-      // 指定了时间段，只打这些时段的卡
-      let count = 0
-      const pending = getPendingMeds()
-      for (const p of pending) {
-        if (mentionedSlots.includes(p.hour)) {
-          await doTakeMed(userId, p.name, p.hour)
-          count++
-        }
-      }
-      actionResult = count > 0 ? `已打卡 ${count} 次（${mentionedSlots.map(h => getSlotLabel(h)).join('、')}）` : '这些时段已经打过卡了'
-    } else if (medName) {
-      // 指定了药名
-      const result = await doTakeMed(userId, medName)
-      actionResult = result
-    } else {
-      // 没有明确指定，提示用户
-      const pending = getPendingMeds()
-      if (pending.length > 0) {
-        actionResult = `你有 ${pending.length} 次药还没吃，请告诉我：\n• 具体哪个药吃了（如"氨氯地平吃了"）\n• 或哪个时段吃了（如"晨起的吃了"）\n• 或说"全部都吃了"`
-      } else {
-        actionResult = '今天的药已经全部打过卡了'
-      }
-    }
-  }
-
-  // 修改库存：如"氨氯地平还有50片"、"修改库存"
-  if (/库存.*改|修改.*库存|还有\d+片|剩\d+片|补货|买了.*片/.test(text) && userId) {
-    const medName = matchMedName(text)
-    const numMatch = text.match(/(\d+)\s*片/)
-    if (medName && numMatch) {
-      const qty = parseInt(numMatch[1])
-      const med = medications.value.find(m => m.name.includes(medName) || medName.includes(m.name))
-      if (med) {
-        await medsStore.update(userId, med.id, { stock_count: qty })
-        actionResult = `已将 ${med.name} 的库存修改为 ${qty} 片`
-      }
-    }
-  }
-
-  // 撤回打卡
-  if (/撤回|取消|撤销|打错|没吃|还没吃|没有吃|取消打卡|恢复/.test(text) && !/没吃完|没吃过/.test(text) && userId) {
-    const medName = matchMedName(text)
-    const mentionedSlots = matchTimeSlots(text)
-
-    if (/全部|所有/.test(text)) {
-      // 撤回全部
-      let count = 0
-      for (const med of medications.value) {
-        if (!med.times) continue
-        for (const t of med.times) {
-          const slot = TIME_SLOTS[t]
-          if (!slot) continue
-          const key = getMedKey(med.name, slot.hour)
-          if (records.value[key]?.startsWith('done_')) {
-            await recordsStore.undoMed(userId, med.id, med.name, slot.hour)
-            await medsStore.restoreStock(userId, med.id)
-            count++
-          }
-        }
-      }
-      actionResult = count > 0 ? `已撤回全部 ${count} 次打卡记录` : '没有需要撤回的打卡记录'
-    } else if (mentionedSlots.length > 0) {
-      // 撤回指定时段
-      let count = 0
-      for (const med of medications.value) {
-        if (!med.times) continue
-        for (const t of med.times) {
-          const slot = TIME_SLOTS[t]
-          if (!slot || !mentionedSlots.includes(slot.hour)) continue
-          const key = getMedKey(med.name, slot.hour)
-          if (records.value[key]?.startsWith('done_')) {
-            await recordsStore.undoMed(userId, med.id, med.name, slot.hour)
-            await medsStore.restoreStock(userId, med.id)
-            count++
-          }
-        }
-      }
-      actionResult = count > 0 ? `已撤回 ${count} 次打卡（${mentionedSlots.map(h => getSlotLabel(h)).join('、')}）` : '这些时段没有打卡记录'
-    } else if (medName) {
-      const result = await doUndoMed(userId, medName)
-      actionResult = result
-    } else {
-      actionResult = '请告诉我要撤回哪个药或哪个时段，如"撤回晨起的"或"撤回氨氯地平"'
-    }
-  }
-
-  // === 构建上下文调用 AI ===
-  await medsStore.fetchAll(userId!) // 刷新最新数据
-  await recordsStore.loadRecords(userId!)
+  // 构建上下文，让 AI 判断意图
   const context = buildContext(medications.value, records.value)
-  const aiContext = actionResult
-    ? context + '\n\n【刚刚执行的操作】\n' + actionResult + '\n请基于操作结果给用户友好的回复。'
-    : context
+  const aiResult = await askAI(text, context)
 
-  const reply = await askAI(text, aiContext)
+  // AI 决定要调用 function
+  if (aiResult.functionCall && userId) {
+    const { name, args } = aiResult.functionCall
+    console.log('AI 调用 function:', name, args)
+    let actionResult = ''
 
-  isThinking.value = false
-  addMsg(reply, 'assistant')
+    if (name === 'take_med') {
+      actionResult = await executeTakeMed(userId, args.med_name, args.time_slots || [])
+    } else if (name === 'undo_med') {
+      actionResult = await executeUndoMed(userId, args.med_name, args.time_slots || [])
+    } else if (name === 'update_stock') {
+      actionResult = await executeUpdateStock(userId, args.med_name, args.quantity)
+    }
+
+    // 刷新数据
+    await medsStore.fetchAll(userId)
+    await recordsStore.loadRecords(userId)
+
+    // 让 AI 基于操作结果生成友好回复
+    const updatedContext = buildContext(medications.value, records.value)
+    const reply = await askAIWithResult(text, updatedContext, actionResult)
+    isThinking.value = false
+    addMsg(reply, 'assistant')
+  } else {
+    // AI 只是回答问题，不调用 function
+    isThinking.value = false
+    addMsg(aiResult.text, 'assistant')
+  }
 }
 
-// === 辅助函数 ===
+// === Function Calling 执行函数 ===
 
-// 从用户消息里匹配时间段
-const matchTimeSlots = (text: string): number[] => {
-  const slots: number[] = []
-  if (/晨起|早上|早晨|7点|7:00/.test(text)) slots.push(7)
-  if (/早餐后|早饭后|8点|8:00/.test(text)) slots.push(8)
-  if (/午餐后|午饭后|中午|14/.test(text)) slots.push(14.5)
-  if (/晚餐后|晚饭后|18/.test(text)) slots.push(18.5)
-  if (/晚间|睡前|晚上|21/.test(text)) slots.push(21)
-  return slots
-}
-
-// 时间段小时数转标签
 const getSlotLabel = (hour: number): string => {
   const map: Record<number, string> = { 7: '晨起', 8: '早餐后', 14.5: '午餐后', 18.5: '晚餐后', 21: '晚间' }
   return map[hour] || String(hour)
 }
 
-// 从用户消息里匹配药品名
-const matchMedName = (text: string): string | null => {
-  for (const med of medications.value) {
-    if (text.includes(med.name) || text.includes(med.name.replace('片', ''))) {
-      return med.name
-    }
-  }
-  return null
-}
-
-// 获取今天未打卡的药
-const getPendingMeds = () => {
-  const pending: { name: string; id: string; hour: number }[] = []
-  medications.value.forEach(med => {
-    if (!med.times) return
-    med.times.forEach((t: string) => {
-      const slot = TIME_SLOTS[t]
-      if (!slot) return
-      const key = getMedKey(med.name, slot.hour)
-      if (!records.value[key]) {
-        pending.push({ name: med.name, id: med.id, hour: slot.hour })
-      }
-    })
-  })
-  return pending
-}
-
 // 执行打卡
-const doTakeMed = async (userId: string, medName: string, specificHour?: number): Promise<string> => {
-  const med = medications.value.find(m => m.name.includes(medName) || medName.includes(m.name))
-  if (!med) return `没找到药品"${medName}"，请检查名称`
-  if (!med.times || med.times.length === 0) return `${med.name} 没有设置服用时间`
+const executeTakeMed = async (userId: string, medName: string, timeSlots: number[]): Promise<string> => {
+  const results: string[] = []
 
-  // 找到该药未打卡的时段
-  let targetHour = specificHour
-  if (!targetHour) {
+  // 找药品
+  const matchedMeds = medName === 'all'
+    ? medications.value
+    : medications.value.filter(m => m.name.includes(medName) || medName.includes(m.name))
+
+  if (matchedMeds.length === 0) return `没找到药品"${medName}"`
+
+  for (const med of matchedMeds) {
+    if (!med.times) continue
     for (const t of med.times) {
       const slot = TIME_SLOTS[t]
       if (!slot) continue
+
+      // 如果指定了时段，只打指定时段
+      if (timeSlots.length > 0 && !timeSlots.includes(slot.hour)) continue
+
       const key = getMedKey(med.name, slot.hour)
       if (!records.value[key]) {
-        targetHour = slot.hour
-        break
+        await recordsStore.takeMed(userId, med.id, med.name, slot.hour)
+        await medsStore.deductStock(userId, med.id)
+        results.push(`${med.name}（${getSlotLabel(slot.hour)}）`)
       }
     }
   }
 
-  if (!targetHour) return `${med.name} 今天已经全部打卡了`
-
-  await recordsStore.takeMed(userId, med.id, med.name, targetHour)
-  await medsStore.deductStock(userId, med.id)
-  return `已记录 ${med.name} 服药，库存 -1`
+  return results.length > 0
+    ? `已打卡：${results.join('、')}`
+    : '这些药/时段已经打过卡了'
 }
 
 // 执行撤回
-const doUndoMed = async (userId: string, medName: string): Promise<string> => {
-  const med = medications.value.find(m => m.name.includes(medName) || medName.includes(m.name))
-  if (!med) return `没找到药品"${medName}"`
-  if (!med.times) return `${med.name} 没有时间记录`
+const executeUndoMed = async (userId: string, medName: string, timeSlots: number[]): Promise<string> => {
+  const results: string[] = []
 
-  // 找到该药已打卡的时段
-  for (const t of med.times) {
-    const slot = TIME_SLOTS[t]
-    if (!slot) continue
-    const key = getMedKey(med.name, slot.hour)
-    if (records.value[key]?.startsWith('done_')) {
-      await recordsStore.undoMed(userId, med.id, med.name, slot.hour)
-      await medsStore.restoreStock(userId, med.id)
-      return `已撤回 ${med.name} 的打卡记录，库存 +1`
+  const matchedMeds = medName === 'all'
+    ? medications.value
+    : medications.value.filter(m => m.name.includes(medName) || medName.includes(m.name))
+
+  for (const med of matchedMeds) {
+    if (!med.times) continue
+    for (const t of med.times) {
+      const slot = TIME_SLOTS[t]
+      if (!slot) continue
+      if (timeSlots.length > 0 && !timeSlots.includes(slot.hour)) continue
+
+      const key = getMedKey(med.name, slot.hour)
+      if (records.value[key]?.startsWith('done_')) {
+        await recordsStore.undoMed(userId, med.id, med.name, slot.hour)
+        await medsStore.restoreStock(userId, med.id)
+        results.push(`${med.name}（${getSlotLabel(slot.hour)}）`)
+      }
     }
   }
-  return `${med.name} 今天还没有打卡记录，无需撤回`
+
+  return results.length > 0
+    ? `已撤回：${results.join('、')}`
+    : '没有需要撤回的记录'
+}
+
+// 执行修改库存
+const executeUpdateStock = async (userId: string, medName: string, quantity: number): Promise<string> => {
+  const med = medications.value.find(m => m.name.includes(medName) || medName.includes(m.name))
+  if (!med) return `没找到药品"${medName}"`
+  await medsStore.update(userId, med.id, { stock_count: quantity })
+  return `已将 ${med.name} 的库存修改为 ${quantity} 片`
 }
 
 const ask = (text: string) => processQuestion(text)
