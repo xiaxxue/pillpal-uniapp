@@ -105,6 +105,13 @@ const handleSubmit = async () => {
       if (userStore.user) {
         await medsStore.fetchAll(userStore.user.id)
         await recordsStore.loadRecords(userStore.user.id)
+
+        // 检查是否需要引导
+        const onboarded = uni.getStorageSync('onboarded_' + userStore.user.id)
+        if (!onboarded && role.value === 'patient') {
+          uni.redirectTo({ url: '/pages/onboarding/index' })
+          return
+        }
       }
       if (role.value === 'patient') {
         uni.switchTab({ url: '/pages/home/index' })
