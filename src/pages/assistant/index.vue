@@ -66,7 +66,7 @@ import { useUserStore } from '../../stores/user'
 import { useMedicationsStore } from '../../stores/medications'
 import { useRecordsStore } from '../../stores/records'
 import { TIME_SLOTS, getMedKey } from '../../utils/date'
-import { askAI, askAIWithResult, buildContext } from '../../utils/ai'
+import { askAI, askAIWithResult, buildUserProfile, buildRealtimeData, manageHistory } from '../../utils/ai'
 
 const userStore = useUserStore()
 const medsStore = useMedicationsStore()
@@ -77,6 +77,8 @@ onShow(async () => {
   if (userStore.user) {
     await medsStore.fetchAll(userStore.user.id)
     await recordsStore.loadRecords(userStore.user.id)
+    // 构建第1层用户画像
+    userProfile.value = buildUserProfile(userStore.user, medications.value)
   }
 })
 const medications = computed(() => medsStore.medications)
@@ -86,6 +88,8 @@ const messages = ref<any[]>([])
 const inputText = ref('')
 const scrollTarget = ref('')
 const isThinking = ref(false)
+const historySummary = ref('') // 压缩后的历史摘要
+const userProfile = ref('') // 第1层：用户画像缓存
 
 const quickQuestions = [
   { text: '今天还有哪些药没吃？', icon: '💊' },
@@ -112,15 +116,19 @@ const processQuestion = async (text: string) => {
     userId = userStore.user?.id
   }
 
-  // 构建对话历史
-  const history = messages.value.map(m => ({
-    role: m.role === 'user' ? 'user' : 'assistant',
+  // 第2层：实时数据
+  const realtimeData = buildRealtimeData(medications.value, records.value)
+
+  // 第3层：对话历史（带压缩）
+  const allHistory = messages.value.map(m => ({
+    role: m.role === 'user' ? 'user' as const : 'assistant' as const,
     content: m.text
   }))
+  const { history, summary } = await manageHistory(allHistory, historySummary.value)
+  historySummary.value = summary
 
-  // 构建上下文，让 AI 判断意图
-  const context = buildContext(medications.value, records.value)
-  const aiResult = await askAI(text, context, history)
+  // 三层合并调用 AI
+  const aiResult = await askAI(text, userProfile.value, realtimeData, history)
 
   // AI 决定要调用 function
   if (aiResult.functionCall && userId) {
@@ -143,8 +151,9 @@ const processQuestion = async (text: string) => {
     await recordsStore.loadRecords(userId)
 
     // 让 AI 基于操作结果生成友好回复
-    const updatedContext = buildContext(medications.value, records.value)
-    const reply = await askAIWithResult(text, updatedContext, actionResult)
+    userProfile.value = buildUserProfile(userStore.user, medications.value) // 刷新画像
+    const updatedData = buildRealtimeData(medications.value, records.value)
+    const reply = await askAIWithResult(text, userProfile.value, updatedData, actionResult)
     isThinking.value = false
     addMsg(reply, 'assistant')
   } else {
