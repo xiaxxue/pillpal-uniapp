@@ -22,6 +22,9 @@
 
       <!-- 有药品时 -->
       <view v-else>
+        <!-- 小派主动提醒 -->
+        <agent-reminder :medications="medications" :records="activeRecords" />
+
         <!-- 概览 -->
         <view class="summary-cards">
           <view class="s-card">
@@ -124,6 +127,7 @@ import { useUserStore } from '../../stores/user'
 import { useMedicationsStore } from '../../stores/medications'
 import { useRecordsStore } from '../../stores/records'
 import { getGreeting, getTodayStr, getDateRange, TIME_SLOTS, getMedKey } from '../../utils/date'
+import AgentReminder from '../../components/agent-reminder.vue'
 
 const userStore = useUserStore()
 const medsStore = useMedicationsStore()
