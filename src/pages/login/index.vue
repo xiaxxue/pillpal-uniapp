@@ -9,28 +9,22 @@
     <view class="form" v-if="!isLoading">
       <view v-if="mode === 'signup'" class="form-item">
         <text class="label">昵称</text>
-        <u-input v-model="name" placeholder="如：张叔叔" border="surround" shape="circle" clearable />
+        <input class="ipt" :value="name" @input="name = $event.detail.value" placeholder="如：张叔叔" />
       </view>
 
       <view class="form-item">
         <text class="label">邮箱</text>
-        <u-input v-model="email" placeholder="请输入邮箱" border="surround" shape="circle" clearable />
+        <input class="ipt" :value="email" @input="email = $event.detail.value" placeholder="请输入邮箱" />
       </view>
 
       <view class="form-item">
         <text class="label">密码</text>
-        <u-input v-model="password" type="password" placeholder="至少6位" border="surround" shape="circle" />
+        <input class="ipt" :value="password" @input="password = $event.detail.value" password placeholder="至少6位" />
       </view>
 
-      <u-button
-        type="primary"
-        shape="circle"
-        size="large"
-        :customStyle="{ marginTop: '40rpx', background: 'linear-gradient(135deg, #0b9d6a, #0abf7f)', border: 'none' }"
-        @click="handleSubmit"
-      >
+      <button class="btn-submit" @click="handleSubmit">
         {{ mode === 'login' ? '登录' : '注册' }}
-      </u-button>
+      </button>
 
       <view class="switch-area">
         <text class="switch-text" @click="toggleMode">
@@ -40,14 +34,14 @@
       </view>
 
       <view v-if="error" class="error-box">
-        <u-icon name="error-circle" color="#e53935" size="28" />
+        <text class="error-icon">⚠</text>
         <text class="error-text">{{ error }}</text>
       </view>
     </view>
 
     <!-- 加载中 -->
     <view v-else class="loading-area">
-      <u-loading-icon mode="semicircle" color="#0b9d6a" size="80" />
+      <text class="loading-spinner">⏳</text>
       <text class="loading-text">{{ mode === 'login' ? '正在登录...' : '正在注册...' }}</text>
     </view>
   </view>
@@ -132,6 +126,17 @@ const handleSubmit = async () => {
 
 .form-item { margin-bottom: 28rpx; }
 .label { font-size: 26rpx; font-weight: 600; color: #374151; display: block; margin-bottom: 12rpx; }
+.ipt {
+  width: 100%; padding: 24rpx 28rpx; font-size: 30rpx;
+  background: #f4f6f8; border: 2rpx solid #e5e7eb;
+  border-radius: 40rpx; height: 88rpx;
+}
+.btn-submit {
+  width: 100%; padding: 24rpx; margin-top: 40rpx;
+  background: linear-gradient(135deg, #0b9d6a, #0abf7f);
+  color: #fff; border: none; border-radius: 40rpx;
+  font-size: 32rpx; font-weight: 600;
+}
 
 .switch-area { text-align: center; margin-top: 36rpx; }
 .switch-text { font-size: 26rpx; color: #6b7280; }
@@ -149,5 +154,7 @@ const handleSubmit = async () => {
   display: flex; flex-direction: column; align-items: center;
   padding-top: 200rpx; gap: 24rpx;
 }
+.loading-spinner { font-size: 64rpx; }
 .loading-text { font-size: 28rpx; color: #6b7280; }
+.error-icon { font-size: 32rpx; }
 </style>
