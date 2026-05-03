@@ -61,13 +61,23 @@
 
 <script setup lang="ts">
 import { ref, computed, nextTick } from 'vue'
+import { onShow } from '@dcloudio/uni-app'
+import { useUserStore } from '../../stores/user'
 import { useMedicationsStore } from '../../stores/medications'
 import { useRecordsStore } from '../../stores/records'
 import { TIME_SLOTS, getMedKey } from '../../utils/date'
 import { askAI, buildContext } from '../../utils/ai'
 
+const userStore = useUserStore()
 const medsStore = useMedicationsStore()
 const recordsStore = useRecordsStore()
+
+onShow(async () => {
+  if (userStore.user) {
+    await medsStore.fetchAll(userStore.user.id)
+    await recordsStore.loadRecords(userStore.user.id)
+  }
+})
 const medications = computed(() => medsStore.medications)
 const records = computed(() => recordsStore.records)
 
