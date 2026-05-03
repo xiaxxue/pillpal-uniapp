@@ -212,7 +212,12 @@ const submitForm = async () => {
     })
     uni.showToast({ title: '修改成功', icon: 'success' })
   } else {
-    // 添加模式
+    // 添加模式 - 检查重复
+    const dup = medications.value.find(m => m.name === form.name)
+    if (dup) {
+      uni.showToast({ title: '该药品已存在，请点击编辑修改', icon: 'none' })
+      return
+    }
     await medsStore.add(userId, {
       name: form.name,
       dosage: form.dosage,

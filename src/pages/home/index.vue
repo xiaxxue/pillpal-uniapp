@@ -19,7 +19,7 @@
         <text class="empty-icon">💊</text>
         <text class="empty-title">还没有添加药品</text>
         <text class="empty-desc">添加你正在服用的药品，PillPal 帮你管理每日用药</text>
-        <button class="btn-primary" @click="showAddMed = true">+ 添加第一种药品</button>
+        <button class="btn-primary" @click="openAddMed">+ 添加第一种药品</button>
       </view>
 
       <!-- 有药品时 -->
@@ -55,7 +55,7 @@
         <!-- 时间轴 -->
         <view class="section-header">
           <text class="section-title">{{ isToday ? '今日用药' : selectedDate + ' 用药记录' }}</text>
-          <text class="section-link" @click="showAddMed = true">+ 添加药品</text>
+          <text class="section-link" @click="openAddMed">+ 添加药品</text>
         </view>
 
         <!-- 日期选择器 -->
@@ -90,8 +90,8 @@
           <view v-if="getSlotMeds(time).length > 0" class="time-section">
             <text class="time-period">{{ getTimeIcon(time) }} {{ getTimeLabel(time) }}</text>
             <view v-for="med in getSlotMeds(time)" :key="med.id + '_' + time" class="med-card" :class="getCardClass(med, time)">
-              <view class="mc-left">
-                <text class="mc-name">{{ med.name }}</text>
+              <view class="mc-left" @click="openEditMed(med)">
+                <text class="mc-name">{{ med.name }} <text class="mc-edit-icon">✎</text></text>
                 <text class="mc-detail">{{ med.dosage }} · {{ med.condition }}</text>
                 <text class="mc-disease">{{ med.disease }}</text>
               </view>
@@ -119,10 +119,10 @@
         </view>
       </view>
     </view>
-    <!-- 添加药品弹窗 -->
+    <!-- 添加/编辑药品弹窗 -->
     <view v-if="showAddMed" class="modal-mask" @click.self="showAddMed = false">
       <view class="modal-box">
-        <text class="modal-title">💊 添加药品</text>
+        <text class="modal-title">{{ editingMedId ? '编辑药品' : '💊 添加药品' }}</text>
 
         <view class="form-item">
           <text class="label">药品名称</text>
@@ -174,7 +174,7 @@
 
         <view class="modal-btns">
           <button class="btn-cancel" @click="showAddMed = false">取消</button>
-          <button class="btn-confirm" @click="submitNewMed">确认添加</button>
+          <button class="btn-confirm" @click="submitNewMed">{{ editingMedId ? '保存修改' : '确认添加' }}</button>
         </view>
       </view>
     </view>
@@ -195,9 +195,27 @@ const medsStore = useMedicationsStore()
 const recordsStore = useRecordsStore()
 
 const showAddMed = ref(false)
+const editingMedId = ref('')
 const condOptions = ['空腹', '餐后30分钟', '睡前', '无要求']
 const timePresets = TIME_PRESETS
 const newMed = reactive({ name: '', dosage: '', times: [] as string[], condition: '空腹', disease: '', stock: 30 })
+
+const openAddMed = () => {
+  Object.assign(newMed, { name: '', dosage: '', times: [], condition: '空腹', disease: '', stock: 30 })
+  editingMedId.value = ''
+  showAddMed.value = true
+}
+
+const openEditMed = (med: any) => {
+  newMed.name = med.name || ''
+  newMed.dosage = med.dosage || ''
+  newMed.times = [...(med.times || [])]
+  newMed.condition = med.condition || '空腹'
+  newMed.disease = med.disease || ''
+  newMed.stock = med.stock_count || 0
+  editingMedId.value = med.id
+  showAddMed.value = true
+}
 
 const togglePreset = (time: string) => {
   const idx = newMed.times.indexOf(time)
@@ -230,20 +248,42 @@ const submitNewMed = async () => {
   const userId = userStore.user?.id
   if (!userId) return
 
-  await medsStore.add(userId, {
-    name: newMed.name,
-    dosage: newMed.dosage,
-    frequency: newMed.times.length,
-    times: [...newMed.times],
-    condition: newMed.condition,
-    disease: newMed.disease,
-    stock_count: newMed.stock,
-    daily_usage: newMed.times.length,
-    note: ''
-  })
+  if (editingMedId.value) {
+    // 编辑模式
+    await medsStore.update(userId, editingMedId.value, {
+      name: newMed.name,
+      dosage: newMed.dosage,
+      times: [...newMed.times],
+      frequency: newMed.times.length,
+      condition: newMed.condition,
+      disease: newMed.disease,
+      stock_count: newMed.stock,
+      daily_usage: newMed.times.length
+    })
+    uni.showToast({ title: '修改成功', icon: 'success' })
+  } else {
+    // 添加模式 - 检查重复
+    const dup = medications.value.find(m => m.name === newMed.name)
+    if (dup) {
+      uni.showToast({ title: '该药品已存在，请在首页点击药品名编辑', icon: 'none' })
+      return
+    }
+    await medsStore.add(userId, {
+      name: newMed.name,
+      dosage: newMed.dosage,
+      frequency: newMed.times.length,
+      times: [...newMed.times],
+      condition: newMed.condition,
+      disease: newMed.disease,
+      stock_count: newMed.stock,
+      daily_usage: newMed.times.length,
+      note: ''
+    })
+    uni.showToast({ title: '添加成功', icon: 'success' })
+  }
 
-  uni.showToast({ title: '添加成功', icon: 'success' })
   showAddMed.value = false
+  editingMedId.value = ''
   Object.assign(newMed, { name: '', dosage: '', times: [], condition: '空腹', disease: '', stock: 30 })
 }
 
@@ -424,6 +464,7 @@ onShow(async () => {
 .med-card.skipped { opacity: 0.5; }
 .mc-left { flex: 1; }
 .mc-name { font-size: 30rpx; font-weight: 600; display: block; }
+.mc-edit-icon { font-size: 24rpx; color: #9ca3af; margin-left: 8rpx; }
 .mc-detail { font-size: 24rpx; color: #6b7280; display: block; margin-top: 6rpx; }
 .mc-disease { font-size: 22rpx; color: #0b9d6a; background: #e6f7f0; padding: 4rpx 12rpx; border-radius: 6rpx; display: inline-block; margin-top: 8rpx; }
 
