@@ -49,8 +49,25 @@
 
         <!-- 时间轴 -->
         <view class="section-header">
-          <text class="section-title">今日用药</text>
+          <text class="section-title">{{ isToday ? '今日用药' : selectedDate + ' 用药记录' }}</text>
           <text class="section-link" @click="showAddMed = true">+ 添加药品</text>
+        </view>
+
+        <!-- 日期选择器 -->
+        <view class="date-nav">
+          <text class="date-arrow" @click="shiftDates(-7)">‹</text>
+          <scroll-view scroll-x class="date-scroll">
+            <view class="date-row">
+              <view v-for="d in dateRange" :key="d.dateStr"
+                class="date-item" :class="{ active: selectedDate === d.dateStr }"
+                :style="d.isFuture ? 'opacity:0.5' : ''"
+                @click="switchDate(d.dateStr)">
+                <text class="date-week">{{ d.label }}</text>
+                <text class="date-day">{{ d.day }}</text>
+              </view>
+            </view>
+          </scroll-view>
+          <text class="date-arrow" @click="shiftDates(7)">›</text>
         </view>
 
         <!-- 进度条 -->
@@ -72,16 +89,20 @@
               <!-- 已服用 -->
               <view v-if="isDone(med, slot)" class="mc-right">
                 <text class="mc-status-done">✓ {{ getDoneTime(med, slot) }}</text>
-                <text class="btn-undo" @click="handleUndo(med, slot)">撤回</text>
+                <text v-if="isToday" class="btn-undo" @click="handleUndo(med, slot)">撤回</text>
               </view>
               <!-- 已跳过 -->
               <view v-else-if="isSkipped(med, slot)" class="mc-right">
                 <text class="mc-status-skip">已跳过</text>
               </view>
-              <!-- 待服用 -->
-              <view v-else class="mc-actions">
+              <!-- 待服用（仅今天） -->
+              <view v-else-if="isToday" class="mc-actions">
                 <button class="btn-take" @click="handleTake(med, slot)">✓ 已服用</button>
                 <button class="btn-skip" @click="handleSkip(med, slot)">跳过</button>
+              </view>
+              <!-- 非今天未服用 -->
+              <view v-else class="mc-right">
+                <text class="mc-status-skip">未服用</text>
               </view>
             </view>
           </view>
@@ -97,7 +118,7 @@ import { onShow } from '@dcloudio/uni-app'
 import { useUserStore } from '../../stores/user'
 import { useMedicationsStore } from '../../stores/medications'
 import { useRecordsStore } from '../../stores/records'
-import { getGreeting, TIME_SLOTS, getMedKey } from '../../utils/date'
+import { getGreeting, getTodayStr, getDateRange, TIME_SLOTS, getMedKey } from '../../utils/date'
 
 const userStore = useUserStore()
 const medsStore = useMedicationsStore()
@@ -105,10 +126,23 @@ const recordsStore = useRecordsStore()
 
 const showAddMed = ref(false)
 const greeting = getGreeting()
+const today = getTodayStr()
+const selectedDate = ref(today)
+const isToday = computed(() => selectedDate.value === today)
+const dateCenter = ref(new Date())
+const dateRange = computed(() => getDateRange(dateCenter.value))
+const dateRecords = ref<Record<string, string>>({})
+const loading = ref(false)
+
 const displayName = computed(() => userStore.displayName)
 const medications = computed(() => medsStore.medications)
 const records = computed(() => recordsStore.records)
-const doneCount = computed(() => recordsStore.doneCount)
+const doneCount = computed(() => {
+  const r = isToday.value ? records.value : dateRecords.value
+  return Object.values(r).filter(v => v.startsWith('done_')).length
+})
+
+const activeRecords = computed(() => isToday.value ? records.value : dateRecords.value)
 
 const slotEntries = Object.entries(TIME_SLOTS)
 const totalMeds = computed(() => medications.value.reduce((sum, m) => sum + (m.times?.length || 1), 0))
@@ -147,10 +181,31 @@ const nextTimeLabel = computed(() => {
 
 const getSlotMeds = (key: string) => medications.value.filter(m => m.times?.includes(key))
 const getRecordKey = (med: any, slot: any) => getMedKey(med.name, slot.hour)
-const isDone = (med: any, slot: any) => records.value[getRecordKey(med, slot)]?.startsWith('done_')
-const isSkipped = (med: any, slot: any) => records.value[getRecordKey(med, slot)]?.startsWith('skip_')
-const getDoneTime = (med: any, slot: any) => records.value[getRecordKey(med, slot)]?.replace('done_', '') || ''
+const isDone = (med: any, slot: any) => activeRecords.value[getRecordKey(med, slot)]?.startsWith('done_')
+const isSkipped = (med: any, slot: any) => activeRecords.value[getRecordKey(med, slot)]?.startsWith('skip_')
+const getDoneTime = (med: any, slot: any) => activeRecords.value[getRecordKey(med, slot)]?.replace('done_', '') || ''
 const getCardClass = (med: any, slot: any) => isDone(med, slot) ? 'done' : isSkipped(med, slot) ? 'skipped' : ''
+
+const shiftDates = (days: number) => {
+  const d = new Date(dateCenter.value)
+  d.setDate(d.getDate() + days)
+  dateCenter.value = d
+}
+
+const switchDate = async (dateStr: string) => {
+  selectedDate.value = dateStr
+  if (dateStr === today) {
+    dateRecords.value = {}
+  } else {
+    loading.value = true
+    const userId = userStore.user?.id
+    if (userId) {
+      const r = await recordsStore.loadRecords(userId, dateStr)
+      dateRecords.value = r
+    }
+    loading.value = false
+  }
+}
 
 const handleTake = async (med: any, slot: any) => {
   const userId = userStore.user?.id
@@ -221,6 +276,16 @@ onShow(async () => {
 .prog-bar { height: 12rpx; background: #e5e7eb; border-radius: 6rpx; overflow: hidden; }
 .prog-fill { height: 100%; background: linear-gradient(90deg, #0b9d6a, #0abf7f); border-radius: 6rpx; transition: width 0.3s; }
 .prog-text { font-size: 24rpx; color: #6b7280; text-align: right; margin-top: 8rpx; display: block; }
+
+/* 日期选择器 */
+.date-nav { display: flex; align-items: center; gap: 8rpx; margin-bottom: 24rpx; }
+.date-arrow { width: 48rpx; height: 48rpx; text-align: center; line-height: 48rpx; font-size: 36rpx; font-weight: 700; color: var(--text-sec, #6b7280); flex-shrink: 0; }
+.date-scroll { flex: 1; white-space: nowrap; }
+.date-row { display: flex; gap: 8rpx; }
+.date-item { display: flex; flex-direction: column; align-items: center; padding: 12rpx 20rpx; border-radius: 16rpx; min-width: 80rpx; flex-shrink: 0; }
+.date-item.active { background: #0b9d6a; color: #fff; }
+.date-week { font-size: 22rpx; opacity: 0.7; }
+.date-day { font-size: 32rpx; font-weight: 700; margin-top: 4rpx; }
 
 .time-section { margin-bottom: 32rpx; }
 .time-period { font-size: 28rpx; font-weight: 600; color: #6b7280; display: block; margin-bottom: 16rpx; }
