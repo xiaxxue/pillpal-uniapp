@@ -1,8 +1,34 @@
 const DEEPSEEK_API_KEY = 'sk-b903314c9e8d40e2b56d37a53252ed17'
 const DEEPSEEK_URL = 'https://api.deepseek.com/chat/completions'
 
-// ====== 工具定义 ======
+// ====== 工具定义（感知 + 执行） ======
 const tools = [
+  // 感知工具
+  {
+    type: 'function',
+    function: {
+      name: 'get_today_status',
+      description: '查看今日服药打卡状态。返回每种药的每个时段是否已服用。',
+      parameters: { type: 'object', properties: {}, required: [] }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_stock',
+      description: '查看所有药品的库存详情，包括剩余片数、可服天数、是否紧张。',
+      parameters: { type: 'object', properties: {}, required: [] }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_medications',
+      description: '查看用户的完整药品列表，包括名称、剂量、服用时间、服用条件等详细信息。',
+      parameters: { type: 'object', properties: {}, required: [] }
+    }
+  },
+  // 执行工具
   {
     type: 'function',
     function: {
@@ -227,77 +253,153 @@ export async function manageHistory(
   return { history, summary: newSummary }
 }
 
-// ====== 主 API 调用 ======
-export async function askAI(
+// ====== ReAct Agent 引擎 ======
+const MAX_STEPS = 5
+
+export type AgentStep = {
+  type: 'thought' | 'action' | 'observation' | 'response'
+  content: string
+  toolName?: string
+  toolArgs?: any
+}
+
+export type AgentResult = {
+  text: string
+  steps: AgentStep[]
+}
+
+// 执行工具的回调类型
+export type ToolExecutor = (name: string, args: any) => Promise<string>
+
+export async function runAgent(
   userMessage: string,
   userProfile: string,
   realtimeData: string,
-  history: { role: string; content: string }[]
-): Promise<{ text: string; functionCall?: { name: string; args: any } }> {
-  try {
-    const messages: any[] = [
-      {
-        role: 'system',
-        content: `你是"小派"，PillPal 用药管家的 AI 助手。
+  history: { role: string; content: string }[],
+  executeTool: ToolExecutor,
+  onStep?: (step: AgentStep) => void
+): Promise<AgentResult> {
+  const steps: AgentStep[] = []
+
+  // 构建初始消息
+  const messages: any[] = [
+    {
+      role: 'system',
+      content: `你是"小派"，PillPal 用药管家的 AI 智能体。
 
 ${userProfile}
 ${realtimeData}
 
-你可以帮用户做以下操作：
-1. 打卡记录服药（take_med）
-2. 跳过服药（skip_med）
-3. 撤回打卡（undo_med）
-4. 修改库存（update_stock）
+你可以使用以下工具来帮助用户。你可以连续调用多个工具来完成复杂任务。
 
-当用户想做这些操作时，调用对应的 function。
-当用户只是问问题时，直接回答，不调用 function。
+例如用户说"帮我看看今天的情况"，你可以：
+1. 先调 get_today_status 查看打卡状态
+2. 再调 get_stock 查看库存
+3. 综合分析后给用户建议
 
 规则：
-- 用温暖亲切的语气
+- 需要信息时主动调工具查询，不要猜测
+- 可以连续调用多个工具
+- 危险操作（删药、停药）先和用户确认再执行
+- 用温暖亲切的语气，用 emoji
 - 回答简短实用
-- 涉及调药停药提醒咨询医生
-- 用 emoji 让回答友好
-- 记住之前的对话内容`
-      },
-      ...history,
-      { role: 'user', content: userMessage }
-    ]
+- 涉及调药停药提醒咨询医生`
+    },
+    ...history,
+    { role: 'user', content: userMessage }
+  ]
 
-    const response = await fetch(DEEPSEEK_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + DEEPSEEK_API_KEY
-      },
-      body: JSON.stringify({
-        model: 'deepseek-chat',
-        messages,
-        tools,
-        tool_choice: 'auto',
-        temperature: 0.7,
-        max_tokens: 500
+  // ReAct 循环
+  for (let step = 0; step < MAX_STEPS; step++) {
+    console.log(`Agent Step ${step + 1}/${MAX_STEPS}`)
+
+    try {
+      const response = await fetch(DEEPSEEK_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + DEEPSEEK_API_KEY
+        },
+        body: JSON.stringify({
+          model: 'deepseek-chat',
+          messages,
+          tools,
+          tool_choice: 'auto',
+          temperature: 0.7,
+          max_tokens: 500
+        })
       })
-    })
 
-    const data = await response.json()
-    console.log('AI 返回:', JSON.stringify(data).slice(0, 300))
+      const data = await response.json()
+      console.log(`Step ${step + 1} AI 返回:`, JSON.stringify(data).slice(0, 300))
 
-    if (data.choices?.[0]) {
-      const msg = data.choices[0].message
-      if (msg.tool_calls?.length > 0) {
-        const call = msg.tool_calls[0]
-        return {
-          text: msg.content || '',
-          functionCall: { name: call.function.name, args: JSON.parse(call.function.arguments) }
-        }
+      if (!data.choices?.[0]) {
+        return { text: '抱歉，暂时无法回答 😅', steps }
       }
-      return { text: msg.content || '抱歉，我没理解 😅' }
+
+      const msg = data.choices[0].message
+
+      // AI 要调用工具 → Action
+      if (msg.tool_calls?.length > 0) {
+        // 把 AI 的回复（含 tool_calls）加入消息
+        messages.push(msg)
+
+        // 执行每个工具调用
+        for (const call of msg.tool_calls) {
+          const toolName = call.function.name
+          const toolArgs = JSON.parse(call.function.arguments)
+
+          // 记录 Action 步骤
+          const actionStep: AgentStep = {
+            type: 'action',
+            content: `调用 ${toolName}`,
+            toolName,
+            toolArgs
+          }
+          steps.push(actionStep)
+          onStep?.(actionStep)
+
+          // 执行工具
+          const result = await executeTool(toolName, toolArgs)
+
+          // 记录 Observation 步骤
+          const obsStep: AgentStep = {
+            type: 'observation',
+            content: result
+          }
+          steps.push(obsStep)
+          onStep?.(obsStep)
+
+          // 把工具结果以 tool role 加入消息
+          messages.push({
+            role: 'tool',
+            tool_call_id: call.id,
+            content: result
+          })
+        }
+
+        // 继续循环，让 AI 根据工具结果决定下一步
+        continue
+      }
+
+      // AI 直接回复文本 → Response，循环结束
+      const responseStep: AgentStep = {
+        type: 'response',
+        content: msg.content || ''
+      }
+      steps.push(responseStep)
+      onStep?.(responseStep)
+
+      return { text: msg.content || '抱歉，我没理解 😅', steps }
+
+    } catch (error) {
+      console.error(`Step ${step + 1} 失败:`, error)
+      return { text: '网络不太好，请稍后再试 📶', steps }
     }
-    return { text: '抱歉，暂时无法回答 😅' }
-  } catch (error) {
-    console.error('AI 请求失败:', error)
-    return { text: '网络不太好，请稍后再试 📶' }
   }
+
+  // 超过最大步数
+  return { text: '这个问题比较复杂，我已经尽力分析了。如果还有问题请再问我 😊', steps }
 }
 
 // 操作完成后生成友好回复

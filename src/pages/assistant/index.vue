@@ -39,12 +39,14 @@
         </view>
       </view>
 
-      <!-- 思考中 -->
+      <!-- Agent 思考过程 -->
       <view v-if="isThinking" class="msg-row assistant">
         <view class="msg-left">
           <view class="avatar-ai">💬</view>
-          <view class="bubble-ai">
-            <text class="thinking-text">小派正在思考中...</text>
+          <view class="bubble-ai thinking-bubble">
+            <view v-for="(step, i) in thinkingSteps" :key="i" class="thinking-step">
+              <text class="thinking-text">{{ step }}</text>
+            </view>
           </view>
         </view>
       </view>
@@ -66,7 +68,8 @@ import { useUserStore } from '../../stores/user'
 import { useMedicationsStore } from '../../stores/medications'
 import { useRecordsStore } from '../../stores/records'
 import { TIME_SLOTS, getMedKey } from '../../utils/date'
-import { askAI, askAIWithResult, buildUserProfile, buildRealtimeData, manageHistory } from '../../utils/ai'
+import { runAgent, buildUserProfile, buildRealtimeData, manageHistory } from '../../utils/ai'
+import type { AgentStep } from '../../utils/ai'
 
 const userStore = useUserStore()
 const medsStore = useMedicationsStore()
@@ -88,6 +91,7 @@ const messages = ref<any[]>([])
 const inputText = ref('')
 const scrollTarget = ref('')
 const isThinking = ref(false)
+const thinkingSteps = ref<string[]>([]) // Agent 实时步骤展示
 const historySummary = ref('') // 压缩后的历史摘要
 const userProfile = ref('') // 第1层：用户画像缓存
 
@@ -109,6 +113,7 @@ const addMsg = (text: string, role: string) => {
 const processQuestion = async (text: string) => {
   addMsg(text, 'user')
   isThinking.value = true
+  thinkingSteps.value = ['小派正在思考...']
 
   let userId = userStore.user?.id
   if (!userId) {
@@ -116,51 +121,95 @@ const processQuestion = async (text: string) => {
     userId = userStore.user?.id
   }
 
-  // 第2层：实时数据
+  // 构建三层上下文
   const realtimeData = buildRealtimeData(medications.value, records.value)
-
-  // 第3层：对话历史（带压缩）
-  const allHistory = messages.value.map(m => ({
+  const allHistory = messages.value.slice(0, -1).map(m => ({
     role: m.role === 'user' ? 'user' as const : 'assistant' as const,
     content: m.text
   }))
   const { history, summary } = await manageHistory(allHistory, historySummary.value)
   historySummary.value = summary
 
-  // 三层合并调用 AI
-  const aiResult = await askAI(text, userProfile.value, realtimeData, history)
+  // 工具执行器
+  const executeTool = async (name: string, args: any): Promise<string> => {
+    if (!userId) return '用户未登录'
 
-  // AI 决定要调用 function
-  if (aiResult.functionCall && userId) {
-    const { name, args } = aiResult.functionCall
-    console.log('AI 调用 function:', name, args)
-    let actionResult = ''
-
-    if (name === 'take_med') {
-      actionResult = await executeTakeMed(userId, args.med_name, args.time_slots || [])
-    } else if (name === 'skip_med') {
-      actionResult = await executeSkipMed(userId, args.med_name, args.time_slots || [], args.reason || '其他')
-    } else if (name === 'undo_med') {
-      actionResult = await executeUndoMed(userId, args.med_name, args.time_slots || [])
-    } else if (name === 'update_stock') {
-      actionResult = await executeUpdateStock(userId, args.med_name, args.quantity)
+    // 感知工具
+    if (name === 'get_today_status') {
+      const total = medications.value.reduce((s, m) => s + (m.times?.length || 1), 0)
+      const done = Object.values(records.value).filter(v => v.startsWith('done_')).length
+      let result = `今日${total}次药中已服${done}次\n`
+      medications.value.forEach(m => {
+        if (!m.times) return
+        m.times.forEach((t: string) => {
+          const slot = TIME_SLOTS[t]
+          if (!slot) return
+          const key = getMedKey(m.name, slot.hour)
+          const r = records.value[key]
+          const status = r?.startsWith('done_') ? '✅已服(' + r.replace('done_', '') + ')' : r?.startsWith('skip_') ? '⏭已跳过' : '⏳待服用'
+          result += `${m.name} ${slot.label} ${status}\n`
+        })
+      })
+      return result
     }
 
-    // 刷新数据
+    if (name === 'get_stock') {
+      let result = ''
+      medications.value.forEach(m => {
+        const daily = m.daily_usage || 1
+        const days = m.stock_count > 0 ? Math.floor(m.stock_count / daily) : 0
+        result += `${m.name}：${m.stock_count}片，${daily}片/天，可服${days}天${days <= 7 ? ' ⚠紧张' : ' ✅充足'}\n`
+      })
+      return result || '没有药品'
+    }
+
+    if (name === 'get_medications') {
+      let result = ''
+      medications.value.forEach(m => {
+        result += `${m.name}（${m.dosage}），${m.condition}，治${m.disease}，时间：${m.times?.join('、') || '未设置'}\n`
+      })
+      return result || '没有药品'
+    }
+
+    // 执行工具
+    if (name === 'take_med') return await executeTakeMed(userId!, args.med_name, args.time_slots || [])
+    if (name === 'skip_med') return await executeSkipMed(userId!, args.med_name, args.time_slots || [], args.reason || '其他')
+    if (name === 'undo_med') return await executeUndoMed(userId!, args.med_name, args.time_slots || [])
+    if (name === 'update_stock') return await executeUpdateStock(userId!, args.med_name, args.quantity)
+
+    return '未知工具: ' + name
+  }
+
+  // 实时展示步骤
+  const onStep = (step: AgentStep) => {
+    if (step.type === 'action') {
+      const labels: Record<string, string> = {
+        get_today_status: '📋 查询今日服药状态...',
+        get_stock: '📦 查询药品库存...',
+        get_medications: '💊 查询药品列表...',
+        take_med: '✅ 正在打卡...',
+        skip_med: '⏭ 正在记录跳过...',
+        undo_med: '↩ 正在撤回...',
+        update_stock: '📝 正在修改库存...'
+      }
+      thinkingSteps.value.push(labels[step.toolName || ''] || '🔧 执行操作...')
+    }
+  }
+
+  // 运行 Agent
+  const result = await runAgent(text, userProfile.value, realtimeData, history, executeTool, onStep)
+
+  // 刷新数据
+  if (userId) {
     await medsStore.fetchAll(userId)
     await recordsStore.loadRecords(userId)
-
-    // 让 AI 基于操作结果生成友好回复
-    userProfile.value = buildUserProfile(userStore.user, medications.value) // 刷新画像
-    const updatedData = buildRealtimeData(medications.value, records.value)
-    const reply = await askAIWithResult(text, userProfile.value, updatedData, actionResult)
-    isThinking.value = false
-    addMsg(reply, 'assistant')
-  } else {
-    // AI 只是回答问题，不调用 function
-    isThinking.value = false
-    addMsg(aiResult.text, 'assistant')
+    userProfile.value = buildUserProfile(userStore.user, medications.value)
   }
+
+  isThinking.value = false
+  thinkingSteps.value = []
+  addMsg(result.text, 'assistant')
+  console.log('Agent 完成，共', result.steps.length, '步')
 }
 
 // === Function Calling 执行函数 ===
@@ -462,10 +511,13 @@ const send = () => {
   max-height: 200rpx;
   line-height: 1.5;
 }
+.thinking-bubble { min-width: 300rpx; }
+.thinking-step { margin-bottom: 8rpx; }
+.thinking-step:last-child .thinking-text { animation: blink 1.5s infinite; }
 .thinking-text {
-  font-size: 26rpx;
+  font-size: 24rpx;
   color: #6b7280;
-  animation: blink 1.5s infinite;
+  display: block;
 }
 @keyframes blink {
   0%, 100% { opacity: 1; }
