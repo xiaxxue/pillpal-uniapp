@@ -65,10 +65,23 @@ export function getTimeIcon(time: string): string {
   return '🌙'
 }
 
-// 根据小时返回时段标签
+// 常用服药时段预设
+export const TIME_PRESETS = [
+  { label: '晨起', time: '07:00' },
+  { label: '早餐后', time: '08:00' },
+  { label: '午餐前', time: '11:30' },
+  { label: '午餐后', time: '12:30' },
+  { label: '晚餐前', time: '17:30' },
+  { label: '晚餐后', time: '18:30' },
+  { label: '睡前', time: '21:00' }
+]
+
+// 根据时间返回时段标签（优先匹配预设）
 export function getTimeLabel(time: string): string {
-  const hour = getHourFromTime(time)
   const t = normalizeTime(time)
+  const preset = TIME_PRESETS.find(p => p.time === t)
+  if (preset) return preset.label + ' · ' + t
+  const hour = getHourFromTime(t)
   if (hour < 6) return '凌晨 · ' + t
   if (hour < 9) return '早晨 · ' + t
   if (hour < 12) return '上午 · ' + t

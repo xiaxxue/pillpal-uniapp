@@ -136,13 +136,19 @@
 
         <view class="form-item">
           <text class="label">什么时候吃</text>
+          <view class="preset-row">
+            <view v-for="p in timePresets" :key="p.time" class="preset-btn" :class="{ selected: newMed.times.includes(p.time) }" @click="togglePreset(p.time)">
+              <text>{{ p.label }}</text>
+              <text class="preset-time">{{ p.time }}</text>
+            </view>
+          </view>
           <view class="time-list">
             <view v-for="(t, i) in newMed.times" :key="i" class="time-tag">
-              <text>{{ t }}</text>
+              <text>{{ getPresetLabel(t) }}</text>
               <text class="time-del" @click="newMed.times.splice(i, 1)">✕</text>
             </view>
             <picker mode="time" @change="addNewMedTime">
-              <view class="time-add">+ 添加时间</view>
+              <view class="time-add">+ 自定义时间</view>
             </picker>
           </view>
         </view>
@@ -181,7 +187,7 @@ import { onShow } from '@dcloudio/uni-app'
 import { useUserStore } from '../../stores/user'
 import { useMedicationsStore } from '../../stores/medications'
 import { useRecordsStore } from '../../stores/records'
-import { getGreeting, getTodayStr, getDateRange, getMedKey, normalizeTime, getHourFromTime, getTimeIcon, getTimeLabel, collectTimeSlots } from '../../utils/date'
+import { getGreeting, getTodayStr, getDateRange, getMedKey, normalizeTime, getHourFromTime, getTimeIcon, getTimeLabel, collectTimeSlots, TIME_PRESETS } from '../../utils/date'
 import AgentReminder from '../../components/agent-reminder.vue'
 
 const userStore = useUserStore()
@@ -190,7 +196,23 @@ const recordsStore = useRecordsStore()
 
 const showAddMed = ref(false)
 const condOptions = ['空腹', '餐后30分钟', '睡前', '无要求']
+const timePresets = TIME_PRESETS
 const newMed = reactive({ name: '', dosage: '', times: [] as string[], condition: '空腹', disease: '', stock: 30 })
+
+const togglePreset = (time: string) => {
+  const idx = newMed.times.indexOf(time)
+  if (idx >= 0) {
+    newMed.times.splice(idx, 1)
+  } else {
+    newMed.times.push(time)
+    newMed.times.sort()
+  }
+}
+
+const getPresetLabel = (time: string) => {
+  const p = TIME_PRESETS.find(x => x.time === time)
+  return p ? p.label + ' ' + time : time
+}
 
 const addNewMedTime = (e: any) => {
   const t = e.detail.value
@@ -425,6 +447,11 @@ onShow(async () => {
 .picker-row { display: flex; gap: 12rpx; flex-wrap: wrap; }
 .cond-btn { padding: 14rpx 24rpx; background: #f4f6f8; border: 2rpx solid #e5e7eb; border-radius: 24rpx; font-size: 24rpx; }
 .cond-btn.selected { background: #e6f7f0; border-color: #0b9d6a; color: #0b9d6a; font-weight: 600; }
+.preset-row { display: flex; flex-wrap: wrap; gap: 12rpx; margin-bottom: 16rpx; }
+.preset-btn { padding: 12rpx 20rpx; background: #f4f6f8; border: 2rpx solid #e5e7eb; border-radius: 20rpx; text-align: center; font-size: 24rpx; }
+.preset-btn.selected { background: #e6f7f0; border-color: #0b9d6a; color: #0b9d6a; font-weight: 600; }
+.preset-time { font-size: 20rpx; color: #9ca3af; display: block; margin-top: 2rpx; }
+.preset-btn.selected .preset-time { color: #0b9d6a; }
 .time-list { display: flex; flex-wrap: wrap; gap: 12rpx; align-items: center; }
 .time-tag { display: flex; align-items: center; gap: 8rpx; padding: 14rpx 24rpx; background: #e6f7f0; border: 2rpx solid #0b9d6a; border-radius: 24rpx; font-size: 26rpx; color: #0b9d6a; font-weight: 600; }
 .time-del { font-size: 24rpx; color: #9ca3af; margin-left: 4rpx; }

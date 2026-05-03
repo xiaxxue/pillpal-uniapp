@@ -58,13 +58,19 @@
 
         <view class="form-item">
           <text class="label">什么时候吃</text>
+          <view class="preset-row">
+            <view v-for="p in timePresets" :key="p.time" class="preset-btn" :class="{ selected: form.times.includes(p.time) }" @click="togglePreset(p.time)">
+              <text>{{ p.label }}</text>
+              <text class="preset-time">{{ p.time }}</text>
+            </view>
+          </view>
           <view class="time-list">
             <view v-for="(t, i) in form.times" :key="i" class="time-tag">
-              <text>{{ t }}</text>
+              <text>{{ getPresetLabel(t) }}</text>
               <text class="time-del" @click="removeTime(i)">✕</text>
             </view>
             <picker mode="time" @change="onPickTime">
-              <view class="time-add">+ 添加时间</view>
+              <view class="time-add">+ 自定义时间</view>
             </picker>
           </view>
         </view>
@@ -102,6 +108,7 @@ import { ref, reactive, computed } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { useUserStore } from '../../stores/user'
 import { useMedicationsStore } from '../../stores/medications'
+import { TIME_PRESETS } from '../../utils/date'
 
 const userStore = useUserStore()
 const medsStore = useMedicationsStore()
@@ -114,6 +121,22 @@ const urgentCount = computed(() => medications.value.filter(m => isUrgent(m)).le
 const weeklyTotal = computed(() => medications.value.reduce((s, m) => s + (m.daily_usage || 1) * 7, 0))
 
 const condOptions = ['空腹', '餐后30分钟', '睡前', '无要求']
+const timePresets = TIME_PRESETS
+
+const togglePreset = (time: string) => {
+  const idx = form.times.indexOf(time)
+  if (idx >= 0) {
+    form.times.splice(idx, 1)
+  } else {
+    form.times.push(time)
+    form.times.sort()
+  }
+}
+
+const getPresetLabel = (time: string) => {
+  const p = TIME_PRESETS.find(x => x.time === time)
+  return p ? p.label + ' ' + time : time
+}
 const showModal = ref(false)
 const isEdit = ref(false)
 const editingId = ref('')
@@ -274,6 +297,11 @@ onShow(async () => {
 .picker-row { display: flex; gap: 12rpx; flex-wrap: wrap; }
 .cond-btn { padding: 14rpx 24rpx; background: #f4f6f8; border: 2rpx solid #e5e7eb; border-radius: 24rpx; font-size: 24rpx; }
 .cond-btn.selected { background: #e6f7f0; border-color: #0b9d6a; color: #0b9d6a; font-weight: 600; }
+.preset-row { display: flex; flex-wrap: wrap; gap: 12rpx; margin-bottom: 16rpx; }
+.preset-btn { padding: 12rpx 20rpx; background: #f4f6f8; border: 2rpx solid #e5e7eb; border-radius: 20rpx; text-align: center; font-size: 24rpx; }
+.preset-btn.selected { background: #e6f7f0; border-color: #0b9d6a; color: #0b9d6a; font-weight: 600; }
+.preset-time { font-size: 20rpx; color: #9ca3af; display: block; margin-top: 2rpx; }
+.preset-btn.selected .preset-time { color: #0b9d6a; }
 .time-list { display: flex; flex-wrap: wrap; gap: 12rpx; align-items: center; }
 .time-tag { display: flex; align-items: center; gap: 8rpx; padding: 14rpx 24rpx; background: #e6f7f0; border: 2rpx solid #0b9d6a; border-radius: 24rpx; font-size: 26rpx; color: #0b9d6a; font-weight: 600; }
 .time-del { font-size: 24rpx; color: #9ca3af; margin-left: 4rpx; }

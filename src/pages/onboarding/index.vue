@@ -74,13 +74,19 @@
 
       <view class="form-item">
         <text class="label">什么时候吃</text>
+        <view class="preset-row">
+          <view v-for="p in timePresets" :key="p.time" class="preset-btn" :class="{ selected: medTimes.includes(p.time) }" @click="togglePresetTime(p.time)">
+            <text>{{ p.label }}</text>
+            <text class="preset-time">{{ p.time }}</text>
+          </view>
+        </view>
         <view class="time-list">
           <view v-for="(t, i) in medTimes" :key="i" class="time-tag">
-            <text>{{ t }}</text>
+            <text>{{ getPresetLabel(t) }}</text>
             <text class="time-del" @click="medTimes.splice(i, 1)">✕</text>
           </view>
           <picker mode="time" @change="addTime">
-            <view class="time-add">+ 添加时间</view>
+            <view class="time-add">+ 自定义时间</view>
           </picker>
         </view>
       </view>
@@ -120,6 +126,7 @@
 import { ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import { useUserStore } from '../../stores/user'
+import { TIME_PRESETS } from '../../utils/date'
 import { useMedicationsStore } from '../../stores/medications'
 import { supabase } from '../../utils/supabase'
 
@@ -154,6 +161,23 @@ const toggleDisease = (d: string) => {
   } else {
     diseases.value.push(d)
   }
+}
+
+const timePresets = TIME_PRESETS
+
+const togglePresetTime = (time: string) => {
+  const idx = medTimes.value.indexOf(time)
+  if (idx >= 0) {
+    medTimes.value.splice(idx, 1)
+  } else {
+    medTimes.value.push(time)
+    medTimes.value.sort()
+  }
+}
+
+const getPresetLabel = (time: string) => {
+  const p = TIME_PRESETS.find(x => x.time === time)
+  return p ? p.label + ' ' + time : time
 }
 
 const addTime = (e: any) => {
@@ -278,6 +302,13 @@ const completeOnboarding = () => {
   border-radius: 24rpx; font-size: 24rpx;
 }
 .time-btn.selected { background: #e6f7f0; border-color: #0b9d6a; color: #0b9d6a; font-weight: 600; }
+
+/* 预设时段 */
+.preset-row { display: flex; flex-wrap: wrap; gap: 12rpx; margin-bottom: 16rpx; }
+.preset-btn { padding: 12rpx 20rpx; background: #f4f6f8; border: 2rpx solid #e5e7eb; border-radius: 20rpx; text-align: center; font-size: 24rpx; }
+.preset-btn.selected { background: #e6f7f0; border-color: #0b9d6a; color: #0b9d6a; font-weight: 600; }
+.preset-time { font-size: 20rpx; color: #9ca3af; display: block; margin-top: 2rpx; }
+.preset-btn.selected .preset-time { color: #0b9d6a; }
 
 /* 时间列表 */
 .time-list { display: flex; flex-wrap: wrap; gap: 12rpx; align-items: center; }
