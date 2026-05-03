@@ -176,6 +176,10 @@ const handleUndo = async (med: any, slot: any) => {
 }
 
 onShow(async () => {
+  // 确保 user 已初始化
+  if (!userStore.user) {
+    await userStore.init()
+  }
   if (userStore.user) {
     await medsStore.fetchAll(userStore.user.id)
     await recordsStore.loadRecords(userStore.user.id)

@@ -79,6 +79,7 @@ const handleDelete = (med: any) => {
 }
 
 onShow(async () => {
+  if (!userStore.user) await userStore.init()
   if (userStore.user) await medsStore.fetchAll(userStore.user.id)
 })
 </script>

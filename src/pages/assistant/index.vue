@@ -73,6 +73,7 @@ const medsStore = useMedicationsStore()
 const recordsStore = useRecordsStore()
 
 onShow(async () => {
+  if (!userStore.user) await userStore.init()
   if (userStore.user) {
     await medsStore.fetchAll(userStore.user.id)
     await recordsStore.loadRecords(userStore.user.id)
