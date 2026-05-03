@@ -32,9 +32,9 @@
             <text class="s-card-num">{{ nextTimeLabel }}</text>
             <text class="s-card-label">下次提醒</text>
           </view>
-          <view class="s-card warn">
-            <text class="s-card-num">{{ minDays < 999 ? minDays + '天' : '-' }}</text>
-            <text class="s-card-label">{{ minDrugName || '库存充足' }}</text>
+          <view class="s-card">
+            <text class="s-card-num">{{ medications.length }}</text>
+            <text class="s-card-label">种药品</text>
           </view>
         </view>
 
