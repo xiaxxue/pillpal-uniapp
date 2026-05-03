@@ -106,13 +106,21 @@ const processQuestion = async (text: string) => {
   addMsg(text, 'user')
   isThinking.value = true
 
-  const userId = userStore.user?.id
+  let userId = userStore.user?.id
+  if (!userId) {
+    // 尝试重新初始化
+    await userStore.init()
+    userId = userStore.user?.id
+  }
+  console.log('小派操作: userId=', userId, 'text=', text)
   let actionResult = ''
 
   // === 检测操作意图并执行 ===
 
   // 打卡：如"帮我打卡"、"氨氯地平已经吃了"、"记录一下吃药了"
-  if (/打卡|吃了|已经服|帮我记录|标记.*服用/.test(text) && userId) {
+  const matchTake = /打卡|吃了|已经服|帮我记录|标记.*服用/.test(text)
+  console.log('匹配打卡意图:', matchTake, 'userId:', !!userId)
+  if (matchTake && userId) {
     const medName = matchMedName(text)
     if (medName) {
       const result = await doTakeMed(userId, medName)
