@@ -106,8 +106,8 @@ export async function askAI(userMessage: string, context: string, history: { rol
 用户当前的用药数据：
 ${context}`
       },
-      // 最近10轮对话历史
-      ...history.slice(-20),
+      // 对话历史（DeepSeek 支持 64K tokens，足够带上所有历史）
+      ...history,
       { role: 'user', content: userMessage }
     ]
 
