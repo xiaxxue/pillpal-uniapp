@@ -72,6 +72,12 @@ const selectRole = (role: string) => {
 
 const enterRole = (role: string) => {
   if (role === 'patient') {
+    // 检查是否需要引导
+    const onboarded = uni.getStorageSync('onboarded_' + userStore.user?.id)
+    if (!onboarded) {
+      uni.redirectTo({ url: '/pages/onboarding/index' })
+      return
+    }
     uni.switchTab({ url: '/pages/home/index' })
   } else {
     uni.navigateTo({ url: '/pages/family/home' })
