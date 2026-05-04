@@ -136,8 +136,11 @@
                     <text class="mc-skip-text" @click.stop="handleUndo(med, time)">已跳过 · 撤回</text>
                   </view>
                   <view v-else-if="isToday" class="mc-btns">
-                    <text class="btn-skip" @click.stop="handleSkip(med, time)">跳过</text>
-                    <text class="btn-take" @click.stop="handleTake(med, time)">记录</text>
+                    <text class="btn-skip" @click.stop="openSkip(med, time)">跳过</text>
+                    <view style="position:relative;display:inline-flex;">
+                      <text class="btn-take" @click.stop="handleTake(med, time)">记录</text>
+                      <confetti :trigger="confettiKey" />
+                    </view>
                   </view>
                 </view>
               </view>
@@ -232,6 +235,16 @@
         <button class="btn-danger" @click="confirmDelete">删除</button>
       </view>
     </sheet>
+
+    <!-- 跳过原因弹窗 -->
+    <sheet v-if="skipTarget" :title="'跳过 ' + skipTarget.med.name" subtitle="选个原因，帮助小派学习你的习惯" @close="skipTarget = null">
+      <view class="skip-reasons">
+        <view v-for="r in skipReasons" :key="r.text" class="skip-reason" @click="confirmSkip(r.text)">
+          <text class="skip-emoji">{{ r.icon }}</text>
+          <text class="skip-text">{{ r.text }}</text>
+        </view>
+      </view>
+    </sheet>
   </view>
 </template>
 
@@ -244,6 +257,7 @@ import { useRecordsStore } from '../../stores/records'
 import { getGreeting, getTodayStr, getDateRange, getMedKey, normalizeTime, getHourFromTime, getTimeIcon, getTimeLabel, collectTimeSlots, TIME_PRESETS } from '../../utils/date'
 import ProgressRing from '../../components/ProgressRing.vue'
 import Sheet from '../../components/Sheet.vue'
+import Confetti from '../../components/Confetti.vue'
 
 const userStore = useUserStore()
 const medsStore = useMedicationsStore()
@@ -332,18 +346,32 @@ const isSkipped = (med: any, time: string) => activeRecords.value[getRecordKey(m
 const getDoneTime = (med: any, time: string) => activeRecords.value[getRecordKey(med, time)]?.replace('done_', '') || ''
 
 // ── 打卡操作 ──
+const confettiKey = ref(0)
 const handleTake = async (med: any, time: string) => {
   const userId = userStore.user?.id
   if (!userId) return
+  confettiKey.value++
   await recordsStore.takeMed(userId, med.id, med.name, time)
   await medsStore.deductStock(userId, med.id)
   uni.showToast({ title: '已记录 · ' + med.name, icon: 'none' })
 }
-const handleSkip = async (med: any, time: string) => {
+// ── 跳过原因 ──
+const skipTarget = ref<any>(null)
+const skipReasons = [
+  { icon: '🚶', text: '外出忘带' },
+  { icon: '🤢', text: '胃不舒服' },
+  { icon: '😴', text: '睡过头' },
+  { icon: '🙅', text: '暂时不需要' },
+  { icon: '💭', text: '其他原因' },
+]
+const openSkip = (med: any, time: string) => { skipTarget.value = { med, time } }
+const confirmSkip = async (reason: string) => {
+  const { med, time } = skipTarget.value
   const userId = userStore.user?.id
   if (!userId) return
-  await recordsStore.skipMed(userId, med.id, med.name, time, '手动跳过')
-  uni.showToast({ title: '已跳过', icon: 'none' })
+  await recordsStore.skipMed(userId, med.id, med.name, time, reason)
+  uni.showToast({ title: '已跳过 · ' + reason, icon: 'none' })
+  skipTarget.value = null
 }
 const handleUndo = async (med: any, time: string) => {
   const userId = userStore.user?.id
@@ -642,6 +670,17 @@ onShow(async () => {
 .btn-danger { flex: 1; padding: 24rpx; background: #fee9e9; color: #dc2626; border: none; border-radius: 24rpx; font-size: 28rpx; font-weight: 600; }
 
 /* ── 药品详情 ── */
+/* ── 跳过原因 ── */
+.skip-reasons { display: flex; flex-direction: column; gap: 16rpx; }
+.skip-reason {
+  padding: 26rpx 28rpx; background: #f6f8f7; border: 2rpx solid #e7eae8;
+  border-radius: 24rpx; display: flex; align-items: center; gap: 20rpx;
+  font-size: 28rpx; font-weight: 500; color: #0f1f1a;
+}
+.skip-reason:active { background: #e7f6ef; border-color: #0b9d6a; }
+.skip-emoji { font-size: 34rpx; }
+.skip-text { flex: 1; }
+
 .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16rpx; }
 .detail-item { background: #f6f8f7; border-radius: 24rpx; padding: 20rpx 24rpx; }
 .detail-label { font-size: 20rpx; color: #6b7670; font-weight: 500; display: block; }

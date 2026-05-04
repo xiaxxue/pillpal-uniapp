@@ -9,9 +9,7 @@
     <!-- Logo 区域 -->
     <view class="logo-area">
       <view class="mascot-wrap">
-        <view class="mascot-icon">
-          <view class="mascot-pill" />
-        </view>
+        <xiaopai mood="wave" :size="180" />
       </view>
       <text class="app-title">小派 PillPal</text>
       <text class="app-sub">AI 智能用药管家</text>
@@ -58,6 +56,7 @@
 import { ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import { useUserStore } from '../../stores/user'
+import Xiaopai from '../../components/Xiaopai.vue'
 
 const userStore = useUserStore()
 

@@ -20,7 +20,7 @@
       <!-- 欢迎 -->
       <view v-if="messages.length === 0" class="welcome">
         <view class="welcome-logo">
-          <text class="welcome-pill">💊</text>
+          <xiaopai-avatar mood="wave" :size="100" />
         </view>
         <text class="welcome-title">你好，我是小派</text>
         <text class="welcome-desc">关于吃药的问题都可以问我</text>
@@ -49,7 +49,7 @@
         <!-- 助手消息 -->
         <view v-else class="msg-ai">
           <view class="avatar-ai">
-            <text class="avatar-ai-icon">💊</text>
+            <xiaopai-avatar :mood="lastMood" :size="44" />
           </view>
           <view class="bubble-ai">
             <text class="bubble-ai-text">{{ msg.text }}</text>
@@ -61,7 +61,7 @@
       <view v-if="isThinking" class="msg-wrap">
         <view class="msg-ai">
           <view class="avatar-ai">
-            <text class="avatar-ai-icon">💊</text>
+            <xiaopai-avatar :mood="lastMood" :size="44" />
           </view>
           <view class="bubble-ai thinking">
             <view v-for="(step, i) in thinkingSteps" :key="i" class="think-step">
@@ -93,6 +93,7 @@ import { useUserStore } from '../../stores/user'
 import { useMedicationsStore } from '../../stores/medications'
 import { useRecordsStore } from '../../stores/records'
 import { normalizeTime, getTimeLabel, getMedKey } from '../../utils/date'
+import XiaopaiAvatar from '../../components/Xiaopai.vue'
 import { runAgent, buildUserProfile, buildRealtimeData, manageHistory } from '../../utils/ai'
 import type { AgentStep } from '../../utils/ai'
 
@@ -122,6 +123,19 @@ const thinkingSteps = ref<string[]>([])
 const historySummary = ref('')
 const userProfile = ref('')
 
+// 根据回复内容判断小派心情
+const pickMood = (text: string): string => {
+  if (/全部完成|太棒了|做得好|坚持|加油|🎉|💪/.test(text)) return 'celebrate'
+  if (/已打卡|已记录|已服|✅/.test(text)) return 'happy'
+  if (/漏服|忘记|没吃|⚠/.test(text)) return 'worried'
+  if (/库存|快吃完|补货|紧张/.test(text)) return 'thinking'
+  if (/晚安|睡前|休息/.test(text)) return 'sleeping'
+  if (/不能|禁忌|注意|避免/.test(text)) return 'reading'
+  if (/❤|关心|陪伴/.test(text)) return 'love'
+  return 'idle'
+}
+const lastMood = ref('wave')
+
 const quickQuestions = [
   { text: '今天还有哪些药没吃？', icon: '💊' },
   { text: '帮我全部打卡，都吃了', icon: '✅' },
@@ -135,7 +149,9 @@ const clearChat = () => {
 
 const addMsg = (text: string, role: string) => {
   const id = Date.now() + Math.random()
-  messages.value.push({ text, role, id: String(id).replace('.', '') })
+  const mood = role === 'assistant' ? pickMood(text) : undefined
+  if (mood) lastMood.value = mood
+  messages.value.push({ text, role, id: String(id).replace('.', ''), mood })
   nextTick(() => { scrollTarget.value = 'msg-' + String(id).replace('.', '') })
 }
 
