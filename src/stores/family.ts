@@ -19,9 +19,14 @@ export const useFamilyStore = defineStore('family', () => {
     loading.value = true
     const dateStr = getTodayStr()
     const { data, error } = await supabase.rpc('get_family_dashboard', { target_date: dateStr })
-    if (!error && data) {
+    console.log('family dashboard:', { data, error, dateStr })
+    if (!error && data && Array.isArray(data)) {
       patients.value = data
+    } else if (!error && data === null) {
+      // RPC 返回 null 表示没有数据
+      patients.value = []
     } else {
+      console.error('family dashboard error:', error)
       patients.value = []
     }
     loading.value = false

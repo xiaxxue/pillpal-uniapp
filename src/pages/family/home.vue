@@ -255,18 +255,33 @@ const bindFamily = async () => {
     uni.showToast({ title: '请先登录', icon: 'none' })
     return
   }
+  // 先查邀请码是否存在
+  const { data: link } = await supabase
+    .from('family_links')
+    .select('*')
+    .eq('invite_code', inviteCode.value.toUpperCase())
+    .eq('status', 'pending')
+    .single()
+
+  if (!link) {
+    uni.showToast({ title: '邀请码无效或已被使用', icon: 'none' })
+    return
+  }
+
   const { error } = await supabase
     .from('family_links')
     .update({ caregiver_id: userStore.user.id, status: 'active' })
-    .eq('invite_code', inviteCode.value)
-    .eq('status', 'pending')
+    .eq('id', link.id)
 
   if (error) {
-    uni.showToast({ title: '绑定失败，请检查邀请码', icon: 'none' })
+    uni.showToast({ title: '绑定失败：' + error.message, icon: 'none' })
   } else {
     uni.showToast({ title: '绑定成功！', icon: 'success' })
     inviteCode.value = ''
-    await familyStore.fetchDashboard()
+    // 等一下再刷新，让数据库同步
+    setTimeout(async () => {
+      await familyStore.fetchDashboard()
+    }, 500)
   }
 }
 
