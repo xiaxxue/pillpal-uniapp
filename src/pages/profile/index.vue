@@ -1,50 +1,115 @@
 <template>
   <view class="page">
-    <view class="profile-header">
-      <text class="profile-avatar">{{ displayName?.charAt(0) || '你' }}</text>
-      <text class="profile-name">{{ displayName }}</text>
-      <text class="profile-email">{{ user?.email }}</text>
+    <!-- 顶部绿色区域 -->
+    <view class="profile-bg">
+      <view class="bg-deco" />
+      <text class="profile-page-title">我的</text>
+      <view class="profile-card">
+        <view class="profile-avatar">
+          <text class="avatar-text">{{ displayName?.charAt(0) || '你' }}</text>
+        </view>
+        <view class="profile-info">
+          <text class="profile-name">{{ displayName }}</text>
+          <text class="profile-email">{{ user?.email }}</text>
+        </view>
+      </view>
     </view>
 
-    <scroll-view scroll-y class="content">
-      <view class="section">
-        <text class="section-title">👥 家属绑定</text>
-        <view class="row" @click="generateCode">
-          <text class="row-title">生成邀请码给家属</text>
-          <text class="row-arrow">›</text>
+    <scroll-view scroll-y class="main-scroll">
+      <!-- 统计卡片 -->
+      <view class="stats-card">
+        <view class="stat-item">
+          <text class="stat-icon">💊</text>
+          <text class="stat-num">{{ medications.length }}</text>
+          <text class="stat-label">种药品</text>
+        </view>
+        <view class="stat-divider" />
+        <view class="stat-item">
+          <text class="stat-icon">🔥</text>
+          <text class="stat-num">{{ doneCount }}</text>
+          <text class="stat-label">累计服药</text>
+        </view>
+        <view class="stat-divider" />
+        <view class="stat-item">
+          <text class="stat-icon">📊</text>
+          <text class="stat-num">--</text>
+          <text class="stat-label">依从率%</text>
         </view>
       </view>
 
-      <view v-if="inviteCode" class="code-box">
+      <!-- 家属绑定 -->
+      <view class="section-group">
+        <text class="section-group-title">家属管理</text>
+        <view class="section-card">
+          <view class="row" @click="generateCode">
+            <text class="row-icon">👨‍👩‍👧</text>
+            <view class="row-body">
+              <text class="row-title">生成邀请码给家属</text>
+              <text class="row-sub">让家人远程关注你的用药</text>
+            </view>
+            <text class="row-arrow">›</text>
+          </view>
+        </view>
+      </view>
+
+      <view v-if="inviteCode" class="code-card">
         <text class="code-label">你的邀请码</text>
         <text class="code-value">{{ inviteCode }}</text>
         <text class="code-tip">请将此邀请码发送给家属</text>
-        <button class="btn-copy" @click="copyCode">复制邀请码</button>
+        <button class="btn-code-copy" @click="copyCode">复制邀请码</button>
       </view>
 
-      <view class="section">
-        <text class="section-title">⚙ 其他</text>
-        <view class="row" @click="switchRole">
-          <text class="row-title">切换角色</text>
-          <text class="row-arrow">›</text>
-        </view>
-        <view class="row" @click="logout">
-          <text class="row-title danger">退出登录</text>
-          <text class="row-arrow">›</text>
+      <!-- 其他设置 -->
+      <view class="section-group">
+        <text class="section-group-title">其他</text>
+        <view class="section-card">
+          <view class="row" @click="switchRole">
+            <text class="row-icon">🔄</text>
+            <view class="row-body">
+              <text class="row-title">切换角色</text>
+            </view>
+            <text class="row-arrow">›</text>
+          </view>
+          <view class="row-line" />
+          <view class="row" @click="showAbout">
+            <text class="row-icon">ℹ️</text>
+            <view class="row-body">
+              <text class="row-title">关于小派</text>
+              <text class="row-sub">v1.2.0</text>
+            </view>
+            <text class="row-arrow">›</text>
+          </view>
+          <view class="row-line" />
+          <view class="row" @click="logout">
+            <text class="row-icon">🚪</text>
+            <view class="row-body">
+              <text class="row-title danger">退出登录</text>
+            </view>
+            <text class="row-arrow">›</text>
+          </view>
         </view>
       </view>
+
+      <view style="height: 60rpx;" />
     </scroll-view>
   </view>
 </template>
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { onShow } from '@dcloudio/uni-app'
 import { useUserStore } from '../../stores/user'
+import { useMedicationsStore } from '../../stores/medications'
+import { useRecordsStore } from '../../stores/records'
 import { supabase } from '../../utils/supabase'
 
 const userStore = useUserStore()
+const medsStore = useMedicationsStore()
+const recordsStore = useRecordsStore()
 const user = computed(() => userStore.user)
 const displayName = computed(() => userStore.displayName)
+const medications = computed(() => medsStore.medications)
+const doneCount = computed(() => recordsStore.doneCount)
 const inviteCode = ref('')
 
 const generateCode = async () => {
@@ -63,31 +128,85 @@ const switchRole = () => {
   uni.reLaunch({ url: '/pages/role-select/index' })
 }
 
+const showAbout = () => {
+  uni.showToast({ title: 'PillPal v1.2.0', icon: 'none' })
+}
+
 const logout = async () => {
   await userStore.signOut()
   uni.removeStorageSync('last_role')
   uni.reLaunch({ url: '/pages/role-select/index' })
 }
+
+onShow(async () => {
+  if (!userStore.user) await userStore.init()
+  if (userStore.user) {
+    await medsStore.fetchAll(userStore.user.id)
+    await recordsStore.loadRecords(userStore.user.id)
+  }
+})
 </script>
 
-<style scoped>
-.page { background: #f4f6f8; min-height: 100vh; }
-.profile-header { background: linear-gradient(135deg, #0b9d6a, #0abf7f); color: #fff; padding: 48rpx; text-align: center; }
-.profile-avatar { width: 100rpx; height: 100rpx; border-radius: 50%; background: rgba(255,255,255,0.25); display: inline-flex; align-items: center; justify-content: center; font-size: 44rpx; font-weight: 600; }
-.profile-name { font-size: 36rpx; font-weight: 600; display: block; margin-top: 16rpx; }
-.profile-email { font-size: 24rpx; opacity: 0.8; display: block; margin-top: 8rpx; }
-.content { padding: 24rpx; }
-.section { background: #fff; border-radius: 20rpx; padding: 24rpx; margin-bottom: 24rpx; box-shadow: 0 2rpx 12rpx rgba(0,0,0,0.06); }
-.section-title { font-size: 30rpx; font-weight: 600; display: block; margin-bottom: 16rpx; }
-.row { display: flex; justify-content: space-between; align-items: center; padding: 20rpx 0; border-bottom: 1rpx solid #e5e7eb; }
-.row:last-child { border-bottom: none; }
-.row-title { font-size: 28rpx; }
-.row-title.danger { color: #e53935; }
-.row-arrow { font-size: 32rpx; color: #9ca3af; }
+<style lang="scss" scoped>
+.page { background: #f6f8f7; min-height: 100vh; display: flex; flex-direction: column; }
 
-.code-box { text-align: center; padding: 32rpx; background: #e6f7f0; border-radius: 20rpx; border: 2rpx dashed #0b9d6a; margin-bottom: 24rpx; }
-.code-label { font-size: 26rpx; color: #6b7280; display: block; margin-bottom: 12rpx; }
-.code-value { font-size: 56rpx; font-weight: 700; color: #0b9d6a; letter-spacing: 12rpx; font-family: monospace; display: block; }
-.code-tip { font-size: 22rpx; color: #6b7280; display: block; margin-top: 12rpx; }
-.btn-copy { width: 100%; margin-top: 16rpx; padding: 16rpx; background: #fff; color: #0b9d6a; border: 2rpx solid #0b9d6a; border-radius: 12rpx; font-size: 28rpx; }
+/* 顶部区域 */
+.profile-bg {
+  background: linear-gradient(135deg, #0b9d6a 0%, #26e69b 100%);
+  padding: 24rpx 40rpx 120rpx; color: #fff; position: relative; overflow: hidden;
+}
+.bg-deco { position: absolute; top: -40rpx; right: -60rpx; width: 320rpx; height: 320rpx; border-radius: 50%; background: rgba(255,255,255,0.1); }
+.profile-page-title { font-size: 32rpx; font-weight: 700; display: block; margin-bottom: 44rpx; position: relative; }
+.profile-card { display: flex; gap: 28rpx; align-items: center; position: relative; }
+.profile-avatar {
+  width: 128rpx; height: 128rpx; border-radius: 44rpx;
+  background: rgba(255,255,255,0.25); border: 4rpx solid rgba(255,255,255,0.4);
+  display: flex; align-items: center; justify-content: center;
+}
+.avatar-text { font-size: 52rpx; font-weight: 700; }
+.profile-info { flex: 1; }
+.profile-name { font-size: 40rpx; font-weight: 700; display: block; }
+.profile-email { font-size: 22rpx; opacity: 0.85; display: block; margin-top: 4rpx; }
+
+.main-scroll { flex: 1; margin-top: -80rpx; }
+
+/* 统计卡片 */
+.stats-card {
+  margin: 0 28rpx; background: #fff; border: 2rpx solid #e7eae8;
+  border-radius: 40rpx; padding: 32rpx; box-shadow: 0 16rpx 48rpx rgba(15,31,26,0.08);
+  display: flex; align-items: center; position: relative;
+}
+.stat-item { flex: 1; text-align: center; }
+.stat-icon { font-size: 28rpx; display: block; margin-bottom: 4rpx; }
+.stat-num { font-size: 44rpx; font-weight: 700; color: #0b9d6a; font-family: 'Inter', sans-serif; display: block; letter-spacing: -1rpx; }
+.stat-label { font-size: 20rpx; color: #6b7670; display: block; margin-top: 4rpx; }
+.stat-divider { width: 2rpx; height: 60rpx; background: #e7eae8; }
+
+/* 分组 */
+.section-group { margin: 28rpx 28rpx 0; }
+.section-group-title { font-size: 22rpx; color: #9aa39e; font-weight: 600; display: block; padding: 0 8rpx 16rpx; letter-spacing: 1rpx; }
+.section-card { background: #fff; border: 2rpx solid #e7eae8; border-radius: 32rpx; overflow: hidden; }
+
+.row { display: flex; align-items: center; gap: 24rpx; padding: 26rpx 28rpx; }
+.row-icon { font-size: 34rpx; flex-shrink: 0; }
+.row-body { flex: 1; }
+.row-title { font-size: 26rpx; font-weight: 600; color: #0f1f1a; display: block; }
+.row-title.danger { color: #c75a2a; }
+.row-sub { font-size: 20rpx; color: #9aa39e; display: block; margin-top: 2rpx; }
+.row-arrow { font-size: 28rpx; color: #9aa39e; flex-shrink: 0; }
+.row-line { height: 2rpx; background: #e7eae8; margin: 0 28rpx; }
+
+/* 邀请码 */
+.code-card {
+  margin: 20rpx 28rpx 0; text-align: center; padding: 40rpx;
+  background: #f0f8f4; border: 2rpx dashed #0b9d6a; border-radius: 32rpx;
+}
+.code-label { font-size: 24rpx; color: #6b7670; display: block; margin-bottom: 16rpx; }
+.code-value { font-size: 64rpx; font-weight: 700; color: #0b9d6a; letter-spacing: 16rpx; font-family: 'Inter', monospace; display: block; }
+.code-tip { font-size: 22rpx; color: #6b7670; display: block; margin-top: 16rpx; }
+.btn-code-copy {
+  margin-top: 20rpx; padding: 16rpx 40rpx;
+  background: #fff; color: #0b9d6a; border: 2rpx solid #0b9d6a;
+  border-radius: 999rpx; font-size: 26rpx; font-weight: 600;
+}
 </style>
