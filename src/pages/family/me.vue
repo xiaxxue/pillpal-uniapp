@@ -71,13 +71,16 @@
         </view>
       </view>
 
-      <view style="height: 60rpx;" />
+      <view style="height: 160rpx;" />
     </scroll-view>
+
+    <family-tab-bar current="me" />
   </view>
 </template>
 
 <script setup lang="ts">
 import { ref } from 'vue'
+import FamilyTabBar from '../../components/FamilyTabBar.vue'
 
 interface SettingRow {
   icon: string

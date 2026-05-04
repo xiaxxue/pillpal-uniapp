@@ -152,9 +152,11 @@
           </view>
         </view>
 
-        <view style="height: 60rpx;" />
+        <view style="height: 160rpx;" />
       </view>
     </scroll-view>
+
+    <family-tab-bar current="home" />
   </view>
 </template>
 
@@ -167,6 +169,7 @@ import type { PatientData } from '../../stores/family'
 import { supabase } from '../../utils/supabase'
 import { normalizeTime, getHourFromTime } from '../../utils/date'
 import Xiaopai from '../../components/Xiaopai.vue'
+import FamilyTabBar from '../../components/FamilyTabBar.vue'
 
 const userStore = useUserStore()
 const familyStore = useFamilyStore()

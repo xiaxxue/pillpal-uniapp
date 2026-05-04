@@ -72,8 +72,10 @@
         <view class="footer-line" />
       </view>
 
-      <view style="height: 40rpx;" />
+      <view style="height: 160rpx;" />
     </scroll-view>
+
+    <family-tab-bar current="messages" />
   </view>
 </template>
 
@@ -82,6 +84,7 @@ import { ref, computed } from 'vue'
 import { useUserStore } from '../../stores/user'
 import { useFamilyStore } from '../../stores/family'
 import Xiaopai from '../../components/Xiaopai.vue'
+import FamilyTabBar from '../../components/FamilyTabBar.vue'
 
 const userStore = useUserStore()
 const familyStore = useFamilyStore()

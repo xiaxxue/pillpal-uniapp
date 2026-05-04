@@ -89,13 +89,16 @@
         </scroll-view>
       </view>
 
-      <view style="height: 60rpx;" />
+      <view style="height: 160rpx;" />
     </scroll-view>
+
+    <family-tab-bar current="services" />
   </view>
 </template>
 
 <script setup lang="ts">
 import { ref } from 'vue'
+import FamilyTabBar from '../../components/FamilyTabBar.vue'
 
 interface ServiceItem {
   icon: string
