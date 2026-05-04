@@ -9,7 +9,7 @@
 
     <!-- 第1步：基本信息 -->
     <view v-if="step === 1" class="step-content">
-      <text class="step-emoji">👋</text>
+      <view class="step-mascot"><xiaopai mood="wave" :size="120" /></view>
       <text class="step-title">欢迎使用 PillPal!</text>
       <text class="step-desc">先告诉我一些基本信息</text>
 
@@ -40,7 +40,7 @@
 
     <!-- 第2步：疾病选择 -->
     <view v-if="step === 2" class="step-content">
-      <text class="step-emoji">🏥</text>
+      <view class="step-mascot"><xiaopai mood="thinking" :size="120" /></view>
       <text class="step-title">你有哪些慢性病？</text>
       <text class="step-desc">可多选，帮小派更好地为你服务</text>
 
@@ -58,7 +58,7 @@
 
     <!-- 第3步：添加第一种药 -->
     <view v-if="step === 3" class="step-content">
-      <text class="step-emoji">💊</text>
+      <view class="step-mascot"><xiaopai mood="reading" :size="120" /></view>
       <text class="step-title">添加你的第一种药</text>
       <text class="step-desc">以后还可以随时添加更多</text>
 
@@ -127,6 +127,7 @@ import { ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import { useUserStore } from '../../stores/user'
 import { TIME_PRESETS } from '../../utils/date'
+import Xiaopai from '../../components/Xiaopai.vue'
 import { useMedicationsStore } from '../../stores/medications'
 import { supabase } from '../../utils/supabase'
 
@@ -249,25 +250,25 @@ const completeOnboarding = () => {
 }
 </script>
 
-<style scoped>
-.page { min-height: 100vh; background: #fff; padding: 0 48rpx 60rpx; }
+<style lang="scss" scoped>
+.page { min-height: 100vh; background: #f6f8f7; padding: 0 48rpx 60rpx; }
 
 /* 步骤指示器 */
 .steps { display: flex; align-items: center; justify-content: center; gap: 40rpx; padding: 60rpx 0 40rpx; }
 .step-dot {
   width: 56rpx; height: 56rpx; border-radius: 50%;
-  background: #e5e7eb; display: flex; align-items: center; justify-content: center;
+  background: #e7eae8; display: flex; align-items: center; justify-content: center;
   transition: all 0.3s;
 }
 .step-dot.active { background: #0b9d6a; }
-.step-dot.current { box-shadow: 0 0 0 6rpx rgba(11,157,106,0.2); }
+.step-dot.current { box-shadow: 0 0 0 8rpx rgba(11,157,106,0.15); }
 .step-num { font-size: 26rpx; font-weight: 700; color: #fff; }
 
 /* 步骤内容 */
 .step-content { animation: fadeIn 0.3s ease; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(20rpx); } to { opacity: 1; transform: translateY(0); } }
-.step-emoji { font-size: 80rpx; display: block; text-align: center; margin-bottom: 16rpx; }
-.step-title { font-size: 40rpx; font-weight: 800; display: block; text-align: center; margin-bottom: 8rpx; }
+.step-mascot { display: flex; justify-content: center; margin-bottom: 24rpx; }
+.step-title { font-size: 40rpx; font-weight: 800; display: block; text-align: center; margin-bottom: 8rpx; color: #0f1f1a; }
 .step-desc { font-size: 28rpx; color: #6b7280; display: block; text-align: center; margin-bottom: 40rpx; }
 
 /* 表单 */

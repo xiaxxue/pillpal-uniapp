@@ -148,9 +148,42 @@
           </view>
         </view>
 
-        <view style="height: 40rpx;" />
+        <view style="height: 160rpx;" />
       </view>
     </scroll-view>
+
+    <!-- FAB 快捷按钮 -->
+    <view class="fab" @click="showQuickAdd = true">
+      <text class="fab-icon">+</text>
+    </view>
+    <sheet v-if="showQuickAdd" title="快捷操作" subtitle="选择你想做的事" @close="showQuickAdd = false">
+      <view class="quick-actions">
+        <view class="qa-item" @click="showQuickAdd = false; openAddMed()">
+          <view class="qa-icon" style="background:#e7f6ef;"><text>💊</text></view>
+          <text class="qa-label">添加药品</text>
+        </view>
+        <view class="qa-item" @click="showQuickAdd = false; goStock()">
+          <view class="qa-icon" style="background:#fef4e2;"><text>📦</text></view>
+          <text class="qa-label">补货库存</text>
+        </view>
+        <view class="qa-item" @click="showQuickAdd = false; goAssistant()">
+          <view class="qa-icon" style="background:#e3f2fd;"><text>🤖</text></view>
+          <text class="qa-label">问小派</text>
+        </view>
+        <view class="qa-item" @click="showQuickAdd = false;">
+          <view class="qa-icon" style="background:#f0f8f4;"><text>📋</text></view>
+          <text class="qa-label">补打卡</text>
+        </view>
+        <view class="qa-item" @click="showQuickAdd = false;">
+          <view class="qa-icon" style="background:#fff3e0;"><text>📝</text></view>
+          <text class="qa-label">备注</text>
+        </view>
+        <view class="qa-item" @click="showQuickAdd = false;">
+          <view class="qa-icon" style="background:#fce4ec;"><text>📷</text></view>
+          <text class="qa-label">扫药盒</text>
+        </view>
+      </view>
+    </sheet>
 
     <!-- 添加/编辑药品弹窗 -->
     <sheet v-if="showAddMed" :title="editingMedId ? '编辑药品' : '添加药品'" subtitle="填写药品基本信息和提醒时间" @close="showAddMed = false">
@@ -488,9 +521,13 @@ const getMedTip = (med: any) => {
   return '请遵医嘱按时服用。'
 }
 
+// ── 快捷操作 ──
+const showQuickAdd = ref(false)
+
 // ── 导航 ──
 const goProfile = () => uni.switchTab({ url: '/pages/profile/index' })
 const goStock = () => uni.switchTab({ url: '/pages/stock/index' })
+const goAssistant = () => uni.switchTab({ url: '/pages/assistant/index' })
 
 // ── 初始化 ──
 onShow(async () => {
@@ -670,6 +707,19 @@ onShow(async () => {
 .btn-danger { flex: 1; padding: 24rpx; background: #fee9e9; color: #dc2626; border: none; border-radius: 24rpx; font-size: 28rpx; font-weight: 600; }
 
 /* ── 药品详情 ── */
+/* ── FAB ── */
+.fab {
+  position: fixed; right: 32rpx; bottom: 200rpx;
+  width: 100rpx; height: 100rpx; border-radius: 50%;
+  background: #0b9d6a; display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 8rpx 24rpx rgba(11,157,106,0.4); z-index: 50;
+}
+.fab-icon { color: #fff; font-size: 52rpx; font-weight: 300; line-height: 1; }
+.quick-actions { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20rpx; }
+.qa-item { display: flex; flex-direction: column; align-items: center; gap: 12rpx; padding: 24rpx 0; }
+.qa-icon { width: 96rpx; height: 96rpx; border-radius: 28rpx; display: flex; align-items: center; justify-content: center; font-size: 40rpx; }
+.qa-label { font-size: 24rpx; font-weight: 600; color: #0f1f1a; }
+
 /* ── 跳过原因 ── */
 .skip-reasons { display: flex; flex-direction: column; gap: 16rpx; }
 .skip-reason {
