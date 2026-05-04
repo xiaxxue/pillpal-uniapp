@@ -124,6 +124,8 @@
 
       <view style="height: 60rpx;" />
     </scroll-view>
+
+    <custom-tab-bar current="profile" />
   </view>
 </template>
 
@@ -134,6 +136,7 @@ import { useUserStore } from '../../stores/user'
 import { useMedicationsStore } from '../../stores/medications'
 import { useRecordsStore } from '../../stores/records'
 import { supabase } from '../../utils/supabase'
+import CustomTabBar from '../../components/CustomTabBar.vue'
 
 const userStore = useUserStore()
 const medsStore = useMedicationsStore()

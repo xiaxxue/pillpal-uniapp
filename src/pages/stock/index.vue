@@ -153,6 +153,8 @@
       </view>
       <button class="btn-green-full" @click="confirmRefill">确认补货</button>
     </sheet>
+
+    <custom-tab-bar current="stock" @add="openAdd" />
   </view>
 </template>
 
@@ -163,6 +165,7 @@ import { useUserStore } from '../../stores/user'
 import { useMedicationsStore } from '../../stores/medications'
 import { TIME_PRESETS } from '../../utils/date'
 import Sheet from '../../components/Sheet.vue'
+import CustomTabBar from '../../components/CustomTabBar.vue'
 
 const userStore = useUserStore()
 const elderMode = computed(() => userStore.elderMode)

@@ -36,10 +36,13 @@ uni-input input, uni-textarea textarea {
   user-select: auto !important;
 }
 
-/* 适配底部 tabBar */
+/* 隐藏原生 tabBar，使用自定义 */
+uni-tabbar, .uni-tabbar { display: none !important; }
+
+/* 适配底部自定义 tabBar */
 .page {
   min-height: 100vh;
-  padding-bottom: calc(120rpx + env(safe-area-inset-bottom));
+  padding-bottom: calc(160rpx + env(safe-area-inset-bottom));
 }
 
 /* 滚动区域 */

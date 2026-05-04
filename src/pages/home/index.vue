@@ -29,54 +29,108 @@
         <button class="btn-green" @click="openAddMed">+ 添加第一种药品</button>
       </view>
 
-      <!-- 长辈版首页 -->
+      <!-- 长辈版首页 (Design B) -->
       <view v-else-if="elderMode && medications.length > 0" class="elder-home">
-        <view class="elder-greeting">
-          <xiaopai-elder mood="happy" :size="80" />
-          <view>
-            <text class="elder-hello">{{ greeting }}，{{ displayName }}</text>
-            <text class="elder-date">{{ todayDisplay }}</text>
+        <!-- 问候 + mascot -->
+        <view class="eb-greeting">
+          <xiaopai-elder mood="wave" :size="96" />
+          <view class="eb-greeting-text">
+            <text class="eb-hello">{{ displayName }}，{{ greeting }}</text>
+            <text class="eb-subtitle">今天还需要服 <text class="eb-highlight">{{ totalMeds - doneCount }}</text> 次药</text>
           </view>
         </view>
 
-        <!-- 下一个药 -->
-        <view v-if="nextMed" class="elder-next-card">
-          <text class="elder-next-label">下一个该吃的药</text>
-          <text class="elder-next-time">{{ nextMed.nextTime }}</text>
-          <text class="elder-next-name">{{ nextMed.name }}</text>
-          <text class="elder-next-detail">{{ nextMed.dosage }} · {{ nextMed.condition }}</text>
+        <!-- Hero: 下次服药 大卡片 -->
+        <view v-if="nextMed" class="eb-hero">
+          <view class="eb-hero-deco1" />
+          <view class="eb-hero-deco2" />
+          <view class="eb-hero-inner">
+            <text class="eb-hero-label">下一次服药</text>
+            <view class="eb-hero-time-row">
+              <text class="eb-hero-time">{{ nextMed.nextTime }}</text>
+              <text class="eb-hero-slot">· {{ getSlotName(nextMed.nextTime) }}</text>
+            </view>
+            <!-- 药品信息卡 -->
+            <view class="eb-hero-med">
+              <view class="eb-hero-pill">💊</view>
+              <view class="eb-hero-med-info">
+                <text class="eb-hero-med-name">{{ nextMed.name }}</text>
+                <text class="eb-hero-med-detail">{{ nextMed.dosage }} · {{ nextMed.condition }}</text>
+              </view>
+            </view>
+            <view class="eb-hero-btns">
+              <button class="eb-btn-take" @click="takeNextMed">✓ 我已经服了</button>
+              <button class="eb-btn-delay">推迟</button>
+            </view>
+          </view>
         </view>
-        <view v-else class="elder-next-card elder-done">
-          <xiaopai-elder mood="celebrate" :size="80" />
-          <text class="elder-done-text">今天的药都吃完了！</text>
+        <view v-else class="eb-hero eb-hero-done">
+          <xiaopai-elder mood="celebrate" :size="120" />
+          <text class="eb-done-text">今天的药都吃完啦！</text>
+          <text class="eb-done-sub">太棒了，继续保持</text>
         </view>
 
-        <!-- 进度 -->
-        <view class="elder-progress">
-          <text class="elder-prog-text">今日进度 {{ doneCount }}/{{ totalMeds }}</text>
-          <view class="elder-prog-bar"><view class="elder-prog-fill" :style="{ width: (totalMeds > 0 ? doneCount/totalMeds*100 : 0) + '%' }" /></view>
+        <!-- 进度 + 连续打卡 双卡 -->
+        <view class="eb-stats-row">
+          <view class="eb-stat-card">
+            <text class="eb-stat-label">今日进度</text>
+            <view class="eb-stat-num-row">
+              <text class="eb-stat-num green">{{ doneCount }}</text>
+              <text class="eb-stat-total"> / {{ totalMeds }}</text>
+              <text class="eb-stat-unit">次</text>
+            </view>
+            <view class="eb-prog-bar"><view class="eb-prog-fill" :style="{ width: (totalMeds > 0 ? doneCount/totalMeds*100 : 0) + '%' }" /></view>
+          </view>
+          <view class="eb-stat-card">
+            <text class="eb-stat-label">🔥 连续坚持</text>
+            <view class="eb-stat-num-row">
+              <text class="eb-stat-num warm">--</text>
+              <text class="eb-stat-unit">天</text>
+            </view>
+            <text class="eb-stat-cheer">太棒啦，继续保持！</text>
+          </view>
         </view>
 
-        <!-- 药品列表（简化） -->
-        <view v-for="time in timeSlots" :key="time">
-          <view v-if="getSlotMeds(time).length > 0">
-            <text class="elder-slot-title">{{ getSlotName(time) }} · {{ time }}</text>
-            <view v-for="med in getSlotMeds(time)" :key="med.id + '_' + time" class="elder-med-card" :class="{ done: isDone(med, time) }">
-              <view class="elder-med-info">
-                <text class="elder-med-name">{{ med.name }}</text>
-                <text class="elder-med-dose">{{ med.dosage }}</text>
+        <!-- 库存预警 -->
+        <view v-if="lowStockMed" class="eb-stock-alert" @click="goStock">
+          <text class="eb-alert-icon">⚠</text>
+          <view class="eb-alert-body">
+            <text class="eb-alert-title">药快吃完啦</text>
+            <text class="eb-alert-sub">{{ lowStockMed.name }} 剩 {{ lowStockMed.stock_count }} 片</text>
+          </view>
+          <text class="eb-alert-btn">去补药</text>
+        </view>
+
+        <!-- 今日服药表 -->
+        <view class="eb-section-header">
+          <text class="eb-section-title">今日服药表</text>
+          <text class="eb-section-add" @click="openAddMed">+ 添加</text>
+        </view>
+
+        <view class="eb-med-groups">
+          <view v-for="time in timeSlots" :key="time">
+            <view v-if="getSlotMeds(time).length > 0" class="eb-med-group">
+              <view class="eb-group-header">
+                <text class="eb-group-time">{{ time }}</text>
+                <text class="eb-group-label">{{ getSlotName(time) }}</text>
               </view>
-              <view v-if="isDone(med, time)">
-                <text class="elder-status-done">✓ 已服</text>
-              </view>
-              <view v-else-if="isToday" @click="handleTake(med, time)">
-                <text class="elder-btn-take">吃药打卡</text>
+              <view v-for="med in getSlotMeds(time)" :key="med.id + '_' + time" class="eb-med-row" :class="{ done: isDone(med, time) }">
+                <view class="eb-med-pill" :class="{ done: isDone(med, time) }">💊</view>
+                <view class="eb-med-body">
+                  <text class="eb-med-name">{{ med.name }}</text>
+                  <text class="eb-med-detail">{{ med.dosage }} · {{ med.condition }}</text>
+                </view>
+                <view v-if="isDone(med, time)" class="eb-med-done-mark">
+                  <text class="eb-checkmark">✓</text>
+                  <text class="eb-done-label">已服</text>
+                </view>
+                <button v-else-if="isToday" class="eb-med-take-btn" @click="handleTake(med, time)">已服</button>
               </view>
             </view>
           </view>
         </view>
 
-        <view style="height: 160rpx;" />
+        <view style="height: 180rpx;" />
       </view>
 
       <view v-else-if="medications.length > 0">
@@ -209,10 +263,8 @@
       </view>
     </scroll-view>
 
-    <!-- FAB 快捷按钮 -->
-    <view class="fab" @click="showQuickAdd = true">
-      <text class="fab-icon">+</text>
-    </view>
+    <!-- 自定义 TabBar -->
+    <custom-tab-bar current="home" @add="showQuickAdd = true" />
     <sheet v-if="showQuickAdd" title="快捷操作" subtitle="选择你想做的事" @close="showQuickAdd = false">
       <view class="quick-actions">
         <view class="qa-item" @click="showQuickAdd = false; openAddMed()">
@@ -349,6 +401,7 @@ import ProgressRing from '../../components/ProgressRing.vue'
 import Sheet from '../../components/Sheet.vue'
 import Confetti from '../../components/Confetti.vue'
 import XiaopaiElder from '../../components/Xiaopai.vue'
+import CustomTabBar from '../../components/CustomTabBar.vue'
 
 const userStore = useUserStore()
 const medsStore = useMedicationsStore()
@@ -583,6 +636,14 @@ const getMedTip = (med: any) => {
   return '请遵医嘱按时服用。'
 }
 
+// ── 长辈模式：打卡下一个药 ──
+const takeNextMed = async () => {
+  if (!nextMed.value) return
+  const med = medications.value.find(m => m.name === nextMed.value.name)
+  if (!med) return
+  await handleTake(med, nextMed.value.nextTime)
+}
+
 // ── 快捷操作 ──
 const showQuickAdd = ref(false)
 
@@ -616,40 +677,120 @@ onShow(async () => {
 
 .main-scroll { flex: 1; }
 
-/* ── 长辈版首页 ── */
-.elder-home { padding: 32rpx; }
-.elder-greeting { display: flex; align-items: center; gap: 20rpx; margin-bottom: 32rpx; }
-.elder-hello { font-size: 40rpx; font-weight: 700; color: #22241f; display: block; }
-.elder-date { font-size: 26rpx; color: #6b7670; display: block; margin-top: 4rpx; }
+/* ── 长辈版首页 (Design B) ── */
+.elder-home { padding: 0 40rpx; background: #faf6ef; }
 
-.elder-next-card {
-  background: #0b9d6a; border-radius: 40rpx; padding: 40rpx; color: #fff; margin-bottom: 28rpx;
+.eb-greeting { display: flex; align-items: center; gap: 28rpx; padding: 20rpx 0; }
+.eb-greeting-text { flex: 1; }
+.eb-hello { font-size: 36rpx; color: #5a6058; font-weight: 500; display: block; }
+.eb-subtitle { font-size: 48rpx; font-weight: 700; color: #22241f; display: block; margin-top: 8rpx; line-height: 1.25; }
+.eb-highlight { color: #0b9d6a; }
+
+/* Hero 大卡片 */
+.eb-hero {
+  background: #0b9d6a; border-radius: 56rpx; padding: 44rpx; color: #fff;
+  margin-bottom: 32rpx; position: relative; overflow: hidden;
 }
-.elder-next-label { font-size: 24rpx; opacity: 0.85; display: block; }
-.elder-next-time { font-size: 72rpx; font-weight: 700; font-family: 'Inter', sans-serif; display: block; margin-top: 8rpx; }
-.elder-next-name { font-size: 34rpx; font-weight: 600; display: block; margin-top: 8rpx; }
-.elder-next-detail { font-size: 26rpx; opacity: 0.85; display: block; margin-top: 4rpx; }
-.elder-done { display: flex; flex-direction: column; align-items: center; padding: 48rpx; }
-.elder-done-text { font-size: 36rpx; font-weight: 700; margin-top: 16rpx; }
+.eb-hero-deco1 { position: absolute; top: -80rpx; right: -80rpx; width: 320rpx; height: 320rpx; border-radius: 50%; background: rgba(255,255,255,0.08); }
+.eb-hero-deco2 { position: absolute; bottom: -120rpx; left: -40rpx; width: 260rpx; height: 260rpx; border-radius: 50%; background: rgba(255,255,255,0.05); }
+.eb-hero-inner { position: relative; }
+.eb-hero-label { font-size: 28rpx; font-weight: 500; opacity: 0.85; display: block; }
+.eb-hero-time-row { display: flex; align-items: baseline; gap: 16rpx; margin-top: 12rpx; }
+.eb-hero-time { font-size: 112rpx; font-weight: 700; font-family: 'Inter', sans-serif; line-height: 1; letter-spacing: -4rpx; }
+.eb-hero-slot { font-size: 32rpx; opacity: 0.85; }
 
-.elder-progress { margin-bottom: 32rpx; }
-.elder-prog-text { font-size: 28rpx; font-weight: 600; color: #22241f; display: block; margin-bottom: 12rpx; }
-.elder-prog-bar { height: 20rpx; background: #eef1ef; border-radius: 10rpx; overflow: hidden; }
-.elder-prog-fill { height: 100%; background: #0b9d6a; border-radius: 10rpx; transition: width 0.6s; }
-
-.elder-slot-title { font-size: 30rpx; font-weight: 700; color: #22241f; display: block; padding: 24rpx 0 12rpx; }
-.elder-med-card {
-  background: #fffdf8; border: 2rpx solid #e7eae8; border-radius: 28rpx;
-  padding: 28rpx 32rpx; margin-bottom: 16rpx;
-  display: flex; align-items: center; justify-content: space-between;
+.eb-hero-med {
+  margin-top: 36rpx; padding: 28rpx 32rpx;
+  background: rgba(255,255,255,0.18); border-radius: 36rpx;
+  display: flex; align-items: center; gap: 28rpx;
 }
-.elder-med-card.done { opacity: 0.6; }
-.elder-med-name { font-size: 34rpx; font-weight: 600; display: block; color: #22241f; }
-.elder-med-dose { font-size: 26rpx; color: #6b7670; display: block; margin-top: 4rpx; }
-.elder-status-done { font-size: 28rpx; color: #0b9d6a; font-weight: 600; }
-.elder-btn-take {
-  padding: 20rpx 40rpx; background: #0b9d6a; color: #fff;
-  border-radius: 999rpx; font-size: 30rpx; font-weight: 700;
+.eb-hero-pill { width: 96rpx; height: 96rpx; border-radius: 28rpx; background: #fff; display: flex; align-items: center; justify-content: center; font-size: 44rpx; flex-shrink: 0; }
+.eb-hero-med-name { font-size: 38rpx; font-weight: 700; display: block; }
+.eb-hero-med-detail { font-size: 28rpx; opacity: 0.9; display: block; margin-top: 4rpx; }
+
+.eb-hero-btns { margin-top: 28rpx; display: flex; gap: 20rpx; }
+.eb-btn-take {
+  flex: 1; padding: 32rpx 0; background: #fff; color: #075f40;
+  font-size: 34rpx; font-weight: 700; border: none; border-radius: 32rpx;
+}
+.eb-btn-delay {
+  padding: 32rpx 36rpx; background: rgba(255,255,255,0.22); color: #fff;
+  font-size: 28rpx; font-weight: 600; border: none; border-radius: 32rpx;
+}
+
+.eb-hero-done { display: flex; flex-direction: column; align-items: center; padding: 60rpx; }
+.eb-done-text { font-size: 44rpx; font-weight: 700; margin-top: 20rpx; }
+.eb-done-sub { font-size: 28rpx; opacity: 0.8; margin-top: 8rpx; }
+
+/* 双统计卡 */
+.eb-stats-row { display: flex; gap: 24rpx; margin-bottom: 28rpx; }
+.eb-stat-card {
+  flex: 1; background: #fffdf8; border: 2rpx solid #ece6d8;
+  border-radius: 40rpx; padding: 32rpx;
+}
+.eb-stat-label { font-size: 26rpx; color: #5a6058; font-weight: 500; display: block; }
+.eb-stat-num-row { display: flex; align-items: baseline; margin-top: 12rpx; }
+.eb-stat-num { font-family: 'Inter', sans-serif; font-weight: 700; }
+.eb-stat-num.green { font-size: 56rpx; color: #0b9d6a; }
+.eb-stat-num.warm { font-size: 64rpx; color: #c75a2a; }
+.eb-stat-total { font-size: 36rpx; color: #8a9088; font-weight: 500; }
+.eb-stat-unit { font-size: 28rpx; color: #5a6058; font-weight: 500; margin-left: 8rpx; }
+.eb-stat-cheer { font-size: 24rpx; color: #5a6058; display: block; margin-top: 12rpx; }
+.eb-prog-bar { margin-top: 20rpx; height: 16rpx; background: #eee5d3; border-radius: 8rpx; overflow: hidden; }
+.eb-prog-fill { height: 100%; background: #0b9d6a; border-radius: 8rpx; transition: width 0.6s; }
+
+/* 库存预警 */
+.eb-stock-alert {
+  padding: 28rpx 32rpx; background: #fbe9d9; border-radius: 36rpx;
+  display: flex; align-items: center; gap: 24rpx; margin-bottom: 28rpx;
+}
+.eb-alert-icon { font-size: 40rpx; }
+.eb-alert-body { flex: 1; }
+.eb-alert-title { font-size: 30rpx; font-weight: 700; color: #7a3a14; display: block; }
+.eb-alert-sub { font-size: 26rpx; color: #945227; display: block; margin-top: 4rpx; }
+.eb-alert-btn { padding: 20rpx 32rpx; border-radius: 999rpx; background: #c75a2a; color: #fff; font-size: 26rpx; font-weight: 600; }
+
+/* 服药表 */
+.eb-section-header { display: flex; justify-content: space-between; align-items: baseline; padding: 8rpx 0 16rpx; }
+.eb-section-title { font-size: 42rpx; font-weight: 700; color: #22241f; }
+.eb-section-add { font-size: 28rpx; color: #0b9d6a; font-weight: 600; }
+
+.eb-med-group {
+  background: #fffdf8; border: 2rpx solid #ece6d8;
+  border-radius: 44rpx; overflow: hidden; margin-bottom: 20rpx;
+}
+.eb-group-header {
+  padding: 24rpx 36rpx; display: flex; align-items: center; gap: 20rpx;
+  border-bottom: 2rpx solid #ece6d8;
+}
+.eb-group-time { font-size: 36rpx; font-weight: 700; color: #0b9d6a; font-family: 'Inter', sans-serif; }
+.eb-group-label { font-size: 30rpx; font-weight: 600; color: #22241f; }
+
+.eb-med-row {
+  padding: 32rpx 36rpx; display: flex; align-items: center; gap: 28rpx;
+  border-bottom: 2rpx solid #ece6d8;
+}
+.eb-med-row:last-child { border-bottom: none; }
+.eb-med-row.done { opacity: 0.55; }
+.eb-med-pill {
+  width: 96rpx; height: 96rpx; border-radius: 28rpx;
+  background: #dff0e6; display: flex; align-items: center;
+  justify-content: center; font-size: 40rpx; flex-shrink: 0;
+}
+.eb-med-pill.done { background: #eeece6; }
+.eb-med-body { flex: 1; min-width: 0; }
+.eb-med-name { font-size: 34rpx; font-weight: 700; color: #22241f; display: block; }
+.eb-med-detail { font-size: 26rpx; color: #5a6058; display: block; margin-top: 6rpx; }
+.eb-med-done-mark { display: flex; flex-direction: column; align-items: center; gap: 4rpx; }
+.eb-checkmark {
+  width: 64rpx; height: 64rpx; border-radius: 50%; background: #0b9d6a;
+  color: #fff; font-size: 36rpx; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+}
+.eb-done-label { font-size: 22rpx; color: #5a6058; }
+.eb-med-take-btn {
+  padding: 20rpx 36rpx; background: #0b9d6a; color: #fff;
+  border: none; border-radius: 28rpx; font-size: 28rpx; font-weight: 700;
 }
 
 /* ── 骨架屏 ── */

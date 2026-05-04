@@ -83,6 +83,8 @@
         <text class="send-arrow">➤</text>
       </view>
     </view>
+
+    <custom-tab-bar current="assistant" />
   </view>
 </template>
 
@@ -94,6 +96,7 @@ import { useMedicationsStore } from '../../stores/medications'
 import { useRecordsStore } from '../../stores/records'
 import { normalizeTime, getTimeLabel, getMedKey } from '../../utils/date'
 import XiaopaiAvatar from '../../components/Xiaopai.vue'
+import CustomTabBar from '../../components/CustomTabBar.vue'
 import { runAgent, buildUserProfile, buildRealtimeData, manageHistory } from '../../utils/ai'
 import type { AgentStep } from '../../utils/ai'
 
