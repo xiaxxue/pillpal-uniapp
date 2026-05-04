@@ -113,6 +113,9 @@
 </template>
 
 <script setup lang="ts">
+// 模块级变量：跨组件重建保持状态，防止每次切标签重复问候
+let _sessionGreeted = false
+
 import { ref, computed, nextTick } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { useUserStore } from '../../stores/user'
@@ -145,7 +148,10 @@ onShow(async () => {
     ])
     userProfile.value = buildUserProfile(userStore.user, medications.value, memoryStore.toPromptText())
   }
-  if (messages.value.length === 0 && userStore.user) autoGreet()
+  if (!_sessionGreeted && !isThinking.value && userStore.user) {
+    _sessionGreeted = true
+    autoGreet()
+  }
 })
 const medications = computed(() => medsStore.medications)
 const records = computed(() => recordsStore.records)
@@ -415,7 +421,7 @@ const executeGenerateReport = (): string => {
 
 // === 主动问候 ===
 const autoGreet = async () => {
-  if (!userStore.user || messages.value.length > 0) return
+  if (!userStore.user) return
   const hour = new Date().getHours()
   const timeWord = hour < 6 ? '深夜了' : hour < 12 ? '早上好' : hour < 14 ? '中午好' : hour < 18 ? '下午好' : '晚上好'
   isThinking.value = true
