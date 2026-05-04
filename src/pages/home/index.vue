@@ -311,11 +311,15 @@ const getSlotMeds = (time: string) => medications.value.filter(m => {
   return times.includes(time)
 })
 const getSlotName = (time: string) => {
+  const p = TIME_PRESETS.find(x => x.time === time)
+  if (p) return p.label
   const hour = getHourFromTime(time)
+  if (hour < 6) return '凌晨'
   if (hour < 9) return '早晨'
-  if (hour < 12) return '上午'
+  if (hour < 11) return '上午'
   if (hour < 14) return '中午'
-  if (hour < 18) return '傍晚'
+  if (hour < 17) return '下午'
+  if (hour < 20) return '傍晚'
   return '夜间'
 }
 const getSlotDoneCount = (time: string) => {
