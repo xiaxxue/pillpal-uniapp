@@ -7,7 +7,10 @@
         <text class="page-title">家人 · 用药</text>
       </view>
       <view class="top-actions">
-        <view class="top-btn" @click="goMessages"><text>🔔</text></view>
+        <view class="top-btn" @click="goMessages" style="position:relative;">
+          <text>🔔</text>
+          <view v-if="unreadCount > 0" class="notif-badge"><text class="notif-badge-text">{{ unreadCount > 9 ? '9+' : unreadCount }}</text></view>
+        </view>
         <view class="top-btn" @click="goBack"><text>↩</text></view>
       </view>
     </view>
@@ -215,6 +218,7 @@ const getLastTaken = (p: PatientData) => {
 }
 
 const urgentPatient = computed(() => patients.value.find(p => getMissedCount(p) > 0) || null)
+const unreadCount = computed(() => familyStore.unreadCount)
 
 // ── 全部家人的今日时间线 ──
 const allTimeline = computed(() => {
@@ -271,7 +275,10 @@ const goRemind = (p: PatientData) => uni.navigateTo({ url: '/pages/family/remind
 
 onShow(async () => {
   if (!userStore.user) await userStore.init()
-  if (userStore.user) await familyStore.fetchDashboard()
+  if (userStore.user) {
+    await familyStore.fetchDashboard()
+    await familyStore.fetchNotifications()
+  }
 })
 </script>
 
@@ -283,6 +290,8 @@ onShow(async () => {
 .page-title { font-size: 38rpx; font-weight: 800; color: #0f1f1a; display: block; margin-top: 2rpx; }
 .top-actions { display: flex; gap: 16rpx; }
 .top-btn { width: 72rpx; height: 72rpx; border-radius: 24rpx; background: #fff; border: 2rpx solid #e3e8f1; display: flex; align-items: center; justify-content: center; font-size: 32rpx; }
+.notif-badge { position: absolute; top: 6rpx; right: 6rpx; min-width: 28rpx; height: 28rpx; padding: 0 6rpx; border-radius: 14rpx; background: #e53935; border: 3rpx solid #fff; display: flex; align-items: center; justify-content: center; }
+.notif-badge-text { font-size: 18rpx; font-weight: 700; color: #fff; font-family: 'Inter', sans-serif; }
 
 .main-scroll { flex: 1; }
 

@@ -189,17 +189,25 @@ const aiRewrite = () => {
   }, 1200)
 }
 
-const sendReminder = () => {
+const sendReminder = async () => {
   if (!messageText.value.trim()) {
     uni.showToast({ title: '请输入提醒内容', icon: 'none' })
     return
   }
   uni.showLoading({ title: '发送中...' })
-  setTimeout(() => {
-    uni.hideLoading()
+  const success = await familyStore.sendReminder({
+    patient_id: patientId.value,
+    method: selectedMethod.value,
+    tone: selectedTone.value,
+    message: messageText.value.trim()
+  })
+  uni.hideLoading()
+  if (success) {
     uni.showToast({ title: '提醒已发送！', icon: 'success' })
     setTimeout(() => uni.navigateBack(), 1200)
-  }, 800)
+  } else {
+    uni.showToast({ title: '发送失败，请重试', icon: 'none' })
+  }
 }
 
 const goBack = () => {

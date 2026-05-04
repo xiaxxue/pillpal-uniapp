@@ -81,8 +81,10 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { onShow } from '@dcloudio/uni-app'
 import { useUserStore } from '../../stores/user'
 import { useFamilyStore } from '../../stores/family'
+import type { NotifyItem } from '../../stores/family'
 import Xiaopai from '../../components/Xiaopai.vue'
 import FamilyTabBar from '../../components/FamilyTabBar.vue'
 
@@ -91,95 +93,48 @@ const familyStore = useFamilyStore()
 
 const activeFilter = ref('all')
 
-const filters = [
-  { value: 'all', label: '全部', count: 12 },
-  { value: 'urgent', label: '紧急', count: 2 },
-  { value: 'missed', label: '漏服', count: 4 },
-  { value: 'vital', label: '体征', count: 3 },
-  { value: 'stock', label: '库存', count: 3 },
-]
+// 从 store 获取真实通知
+const allNotifications = computed(() => familyStore.notifications)
 
-interface NotifyItem {
-  type: 'missed' | 'vital' | 'done' | 'stock' | 'report'
-  icon: string
-  title: string
-  desc: string
-  time: string
-  who: string
-  urgent?: boolean
-  action?: string
-}
-
-interface NotifyGroup {
-  label: string
-  items: NotifyItem[]
-}
-
-const notifications: NotifyGroup[] = [
-  {
-    label: '今天',
-    items: [
-      { type: 'missed', icon: '🚨', title: '格列齐特漏服提醒', desc: '午餐前80mg已超时35分钟，请尽快提醒服药', time: '12:35', who: '张大爷', urgent: true, action: '立即提醒' },
-      { type: 'missed', icon: '⚠️', title: '氨氯地平漏服提醒', desc: '早餐后5mg未按时服用', time: '09:20', who: '张大爷', urgent: true, action: '立即提醒' },
-      { type: 'vital', icon: '📊', title: '血糖偏高预警', desc: '餐后2h血糖 12.8 mmol/L，高于目标值', time: '10:30', who: '张大爷', action: '查看详情' },
-      { type: 'done', icon: '✅', title: '二甲双胍已服用', desc: '早餐后500mg，服药时间 08:15', time: '08:15', who: '张大爷' },
-      { type: 'stock', icon: '📦', title: '药品库存不足', desc: '格列齐特仅剩5片，预计可用3天', time: '08:00', who: '系统', action: '去补货' },
-    ]
-  },
-  {
-    label: '昨天',
-    items: [
-      { type: 'done', icon: '✅', title: '全部药品已按时服用', desc: '昨日用药全部完成，依从率100%', time: '22:00', who: '系统' },
-      { type: 'vital', icon: '💓', title: '血压正常报告', desc: '收缩压 128 / 舒张压 82 mmHg', time: '18:30', who: '张大爷' },
-      { type: 'report', icon: '📋', title: '日报已生成', desc: '昨日用药日报已自动生成，点击查看', time: '22:00', who: '系统', action: '查看日报' },
-    ]
-  },
-  {
-    label: '本周',
-    items: [
-      { type: 'missed', icon: '⚠️', title: '阿司匹林漏服', desc: '周二晚餐后100mg未服用', time: '周二 18:30', who: '张大爷' },
-      { type: 'missed', icon: '⚠️', title: '格列齐特漏服', desc: '周一午餐前80mg未服用', time: '周一 12:00', who: '张大爷' },
-      { type: 'stock', icon: '📦', title: '氨氯地平已补货', desc: '新购30片已入库', time: '周一 10:00', who: '系统' },
-      { type: 'report', icon: '📊', title: '周报已生成', desc: '上周用药依从率92%，较前周提升3%', time: '周一 08:00', who: '系统', action: '查看周报' },
-    ]
-  },
-]
-
-const filteredGroups = computed(() => {
-  if (activeFilter.value === 'all') return notifications
-
-  const typeMap: Record<string, string[]> = {
-    urgent: ['missed'],
-    missed: ['missed'],
-    vital: ['vital'],
-    stock: ['stock', 'report'],
-  }
-  const allowedTypes = typeMap[activeFilter.value] || []
-  const filtered: NotifyGroup[] = []
-
-  notifications.forEach(group => {
-    let items = group.items.filter(item => {
-      if (activeFilter.value === 'urgent') return item.urgent
-      return allowedTypes.includes(item.type)
-    })
-    if (items.length > 0) {
-      filtered.push({ label: group.label, items })
-    }
-  })
-  return filtered
+// 动态计算筛选计数
+const filters = computed(() => {
+  const all = allNotifications.value
+  return [
+    { value: 'all', label: '全部', count: all.length },
+    { value: 'urgent', label: '紧急', count: all.filter(n => n.urgent).length },
+    { value: 'missed', label: '漏服', count: all.filter(n => n.type === 'missed').length },
+    { value: 'done', label: '已服', count: all.filter(n => n.type === 'done').length },
+    { value: 'stock', label: '库存', count: all.filter(n => n.type === 'stock').length },
+  ]
 })
 
-const markAllRead = () => {
+// 按类型筛选，分组为"今天"
+const filteredGroups = computed(() => {
+  let items = allNotifications.value
+  if (activeFilter.value === 'urgent') items = items.filter(n => n.urgent)
+  else if (activeFilter.value !== 'all') items = items.filter(n => n.type === activeFilter.value)
+
+  if (items.length === 0) return []
+  return [{ label: '今天', items }]
+})
+
+const markAllRead = async () => {
+  await familyStore.markAllRead()
   uni.showToast({ title: '已全部标为已读', icon: 'success' })
 }
 
 const handleAction = (item: NotifyItem) => {
-  if (item.action === '立即提醒') {
-    uni.navigateTo({ url: '/pages/family/remind' })
+  if (item.action === '立即提醒' && item.patient_id) {
+    uni.navigateTo({ url: '/pages/family/remind?patient_id=' + item.patient_id + '&name=' + encodeURIComponent(item.who) })
   } else {
     uni.showToast({ title: '功能开发中', icon: 'none' })
   }
 }
+
+onShow(async () => {
+  if (!userStore.user) await userStore.init()
+  if (userStore.user) await familyStore.fetchNotifications()
+})
 </script>
 
 <style lang="scss" scoped>
