@@ -1,5 +1,5 @@
 <template>
-  <view class="page">
+  <view class="page" :class="{ 'elder-mode': elderMode }">
     <!-- 顶栏 -->
     <view class="top-bar">
       <view>
@@ -248,6 +248,7 @@ import Sheet from '../../components/Sheet.vue'
 const userStore = useUserStore()
 const medsStore = useMedicationsStore()
 const recordsStore = useRecordsStore()
+const elderMode = computed(() => userStore.elderMode)
 
 // ── 基础数据 ──
 const greeting = getGreeting()

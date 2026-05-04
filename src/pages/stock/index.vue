@@ -1,5 +1,5 @@
 <template>
-  <view class="page">
+  <view class="page" :class="{ 'elder-mode': elderMode }">
     <!-- 顶栏 -->
     <view class="top-bar">
       <text class="page-title">药品库存</text>
@@ -165,6 +165,7 @@ import { TIME_PRESETS } from '../../utils/date'
 import Sheet from '../../components/Sheet.vue'
 
 const userStore = useUserStore()
+const elderMode = computed(() => userStore.elderMode)
 const medsStore = useMedicationsStore()
 const medications = computed(() => medsStore.medications)
 

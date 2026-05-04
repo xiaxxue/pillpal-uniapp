@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { onLaunch } from "@dcloudio/uni-app";
+import { useUserStore } from "./stores/user";
 onLaunch(() => {
   console.log("PillPal 启动");
+  const userStore = useUserStore();
+  userStore.initElderMode();
 });
 </script>
 
@@ -66,4 +69,42 @@ button {
 button::after {
   border: none;
 }
+
+/* ═══ 长辈模式（全局覆盖） ═══ */
+.elder-mode page,
+page.elder-mode {
+  background: #faf6ef;
+  font-size: 34rpx;
+}
+
+.elder-mode .page {
+  background: #faf6ef !important;
+}
+
+/* 长辈模式：文字放大 */
+.elder-mode text { font-size: 110%; }
+.elder-mode .mc-name, .elder-mode .sc-name, .elder-mode .role-title { font-size: 38rpx !important; }
+.elder-mode .mc-dosage, .elder-mode .mc-condition, .elder-mode .sc-spec { font-size: 26rpx !important; }
+.elder-mode .btn-take, .elder-mode .btn-skip, .elder-mode .sc-btn-refill, .elder-mode .sc-btn-edit {
+  font-size: 28rpx !important; padding: 16rpx 32rpx !important;
+}
+
+/* 长辈模式：暖色调 */
+.elder-mode .hero-card,
+.elder-mode .med-card,
+.elder-mode .stock-card,
+.elder-mode .section-card,
+.elder-mode .stats-card,
+.elder-mode .ov-card,
+.elder-mode .bubble-ai { background: #fffdf8 !important; }
+
+.elder-mode .top-bar,
+.elder-mode .chat-header { background: #faf6ef !important; }
+
+/* 长辈模式：更大触摸区域 */
+.elder-mode .med-card { padding: 32rpx 32rpx !important; gap: 28rpx !important; }
+.elder-mode .mc-icon { width: 96rpx !important; height: 96rpx !important; border-radius: 28rpx !important; }
+.elder-mode .row { padding: 32rpx 28rpx !important; }
+.elder-mode .quick-card { padding: 32rpx !important; }
+.elder-mode .date-item { width: 100rpx !important; padding: 20rpx 0 !important; }
 </style>

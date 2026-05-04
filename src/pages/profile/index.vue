@@ -1,5 +1,5 @@
 <template>
-  <view class="page">
+  <view class="page" :class="{ 'elder-mode': elderMode }">
     <!-- 顶部绿色区域 -->
     <view class="profile-bg">
       <view class="bg-deco" />
@@ -59,6 +59,23 @@
         <button class="btn-code-copy" @click="copyCode">复制邀请码</button>
       </view>
 
+      <!-- 显示设置 -->
+      <view class="section-group">
+        <text class="section-group-title">显示设置</text>
+        <view class="section-card">
+          <view class="row">
+            <text class="row-icon">🔤</text>
+            <view class="row-body">
+              <text class="row-title">长辈模式</text>
+              <text class="row-sub">大字体 · 暖色调 · 更大按钮</text>
+            </view>
+            <view class="switch" :class="{ on: elderMode }" @click="toggleElder">
+              <view class="switch-thumb" />
+            </view>
+          </view>
+        </view>
+      </view>
+
       <!-- 其他设置 -->
       <view class="section-group">
         <text class="section-group-title">其他</text>
@@ -108,9 +125,12 @@ const medsStore = useMedicationsStore()
 const recordsStore = useRecordsStore()
 const user = computed(() => userStore.user)
 const displayName = computed(() => userStore.displayName)
+const elderMode = computed(() => userStore.elderMode)
 const medications = computed(() => medsStore.medications)
 const doneCount = computed(() => recordsStore.doneCount)
 const inviteCode = ref('')
+
+const toggleElder = () => { userStore.toggleElderMode() }
 
 const generateCode = async () => {
   const code = Math.random().toString(36).substring(2, 8).toUpperCase()
@@ -195,6 +215,21 @@ onShow(async () => {
 .row-sub { font-size: 20rpx; color: #9aa39e; display: block; margin-top: 2rpx; }
 .row-arrow { font-size: 28rpx; color: #9aa39e; flex-shrink: 0; }
 .row-line { height: 2rpx; background: #e7eae8; margin: 0 28rpx; }
+
+/* 开关 */
+.switch {
+  width: 84rpx; height: 48rpx; border-radius: 24rpx;
+  background: #e7eae8; position: relative; flex-shrink: 0;
+  transition: background 0.25s;
+}
+.switch.on { background: #0b9d6a; }
+.switch-thumb {
+  position: absolute; top: 4rpx; left: 4rpx;
+  width: 40rpx; height: 40rpx; border-radius: 50%;
+  background: #fff; box-shadow: 0 4rpx 8rpx rgba(0,0,0,0.18);
+  transition: left 0.25s cubic-bezier(.2,.8,.2,1);
+}
+.switch.on .switch-thumb { left: 40rpx; }
 
 /* 邀请码 */
 .code-card {

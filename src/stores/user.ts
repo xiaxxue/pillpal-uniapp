@@ -5,6 +5,16 @@ import { supabase } from '../utils/supabase'
 export const useUserStore = defineStore('user', () => {
   const user = ref<any>(null)
   const loading = ref(true)
+  const elderMode = ref(false)
+
+  // 初始化时读取本地存储的长辈模式设置
+  const initElderMode = () => {
+    elderMode.value = uni.getStorageSync('elder_mode') === 'true'
+  }
+  const toggleElderMode = () => {
+    elderMode.value = !elderMode.value
+    uni.setStorageSync('elder_mode', elderMode.value ? 'true' : 'false')
+  }
 
   const displayName = computed(() => {
     return user.value?.user_metadata?.display_name || user.value?.email?.split('@')[0] || ''
@@ -40,5 +50,5 @@ export const useUserStore = defineStore('user', () => {
     user.value = null
   }
 
-  return { user, loading, displayName, init, signUp, signIn, signOut }
+  return { user, loading, displayName, elderMode, init, initElderMode, toggleElderMode, signUp, signIn, signOut }
 })

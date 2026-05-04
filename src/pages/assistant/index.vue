@@ -1,5 +1,5 @@
 <template>
-  <view class="page">
+  <view class="page" :class="{ 'elder-mode': elderMode }">
     <!-- 顶栏 -->
     <view class="chat-header">
       <view style="width: 72rpx;" />
@@ -100,6 +100,7 @@ const userStore = useUserStore()
 const medsStore = useMedicationsStore()
 const recordsStore = useRecordsStore()
 
+const elderMode = computed(() => userStore.elderMode)
 const displayName = computed(() => userStore.displayName)
 
 onShow(async () => {
