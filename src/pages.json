@@ -8,6 +8,15 @@
     { "path": "pages/assistant/index", "style": { "navigationBarTitleText": "小派用药助手" } },
     { "path": "pages/profile/index", "style": { "navigationBarTitleText": "个人中心" } },
     { "path": "pages/family/home", "style": { "navigationBarTitleText": "家属监护" } },
+    { "path": "pages/family/detail", "style": { "navigationStyle": "custom" } },
+    { "path": "pages/family/remind", "style": { "navigationStyle": "custom" } },
+    { "path": "pages/family/report", "style": { "navigationStyle": "custom" } },
+    { "path": "pages/family/invite-choose", "style": { "navigationStyle": "custom" } },
+    { "path": "pages/family/invite", "style": { "navigationStyle": "custom" } },
+    { "path": "pages/family/patient-invite", "style": { "navigationStyle": "custom" } },
+    { "path": "pages/family/messages", "style": { "navigationStyle": "custom" } },
+    { "path": "pages/family/services", "style": { "navigationStyle": "custom" } },
+    { "path": "pages/family/me", "style": { "navigationStyle": "custom" } },
     { "path": "pages/records/index", "style": { "navigationStyle": "custom" } }
   ],
   "globalStyle": {

@@ -7,7 +7,7 @@
         <text class="page-title">家人 · 用药</text>
       </view>
       <view class="top-actions">
-        <view class="top-btn" @click="refresh"><text>🔄</text></view>
+        <view class="top-btn" @click="goMessages"><text>🔔</text></view>
         <view class="top-btn" @click="goBack"><text>↩</text></view>
       </view>
     </view>
@@ -39,7 +39,7 @@
             <text class="alert-title">{{ urgentPatient.patient_name }} 有药漏服了</text>
             <text class="alert-sub">建议立即提醒</text>
           </view>
-          <button class="alert-btn">提醒</button>
+          <button class="alert-btn" @click="goRemind(urgentPatient)">提醒</button>
         </view>
 
         <!-- 周报入口 -->
@@ -56,7 +56,7 @@
         <view class="section-wrap">
           <text class="section-label">关注的家人</text>
           <view class="member-list">
-            <view v-for="(p, idx) in patients" :key="p.patient_id" class="member-card" :class="{ warn: getMissedCount(p) > 0 }" @click="selectedIdx = idx">
+            <view v-for="(p, idx) in patients" :key="p.patient_id" class="member-card" :class="{ warn: getMissedCount(p) > 0 }" @click="goDetail(p)">
               <!-- 头像区 -->
               <view class="mc-top">
                 <view class="mc-avatar-wrap">
@@ -103,7 +103,7 @@
             </view>
 
             <!-- 邀请新家人 -->
-            <view class="invite-card" @click="showBindMore = !showBindMore">
+            <view class="invite-card" @click="goInvite">
               <text class="invite-icon">+</text>
               <text class="invite-text">邀请新家人</text>
             </view>
@@ -261,6 +261,10 @@ const bindFamily = async () => {
 
 const refresh = () => familyStore.fetchDashboard()
 const goBack = () => { uni.removeStorageSync('last_role'); uni.reLaunch({ url: '/pages/role-select/index' }) }
+const goInvite = () => uni.navigateTo({ url: '/pages/family/invite-choose' })
+const goDetail = (p: PatientData) => uni.navigateTo({ url: '/pages/family/detail?patient_id=' + p.patient_id + '&name=' + encodeURIComponent(p.patient_name) })
+const goMessages = () => uni.navigateTo({ url: '/pages/family/messages' })
+const goRemind = (p: PatientData) => uni.navigateTo({ url: '/pages/family/remind?patient_id=' + p.patient_id + '&name=' + encodeURIComponent(p.patient_name) })
 
 onShow(async () => {
   if (!userStore.user) await userStore.init()
