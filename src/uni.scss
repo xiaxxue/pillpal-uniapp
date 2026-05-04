@@ -1,23 +1,59 @@
-/* PillPal 主题色（uView theme 已在 vite.config.ts 全局引入） */
-$u-primary: #0b9d6a;
-$u-success: #0b9d6a;
-$u-warning: #f57c00;
-$u-error: #e53935;
-$u-info: #6b7280;
+/* ═══ PillPal Design Tokens (A 风格) ═══ */
 
-/* uni-app 内置变量 */
-$uni-color-primary: #0b9d6a;
-$uni-color-success: #0b9d6a;
-$uni-color-warning: #f57c00;
-$uni-color-error: #e53935;
+// 主色
+$green: #0b9d6a;
+$green-light: #e7f6ef;
+$green-dark: #078558;
+$green-soft: #f0f8f4;
 
-$uni-text-color: #1a1a2e;
+// 文字
+$text: #0f1f1a;
+$text-mute: #6b7670;
+$text-soft: #9aa39e;
+
+// 背景 / 线
+$bg: #f6f8f7;
+$card: #ffffff;
+$line: #e7eae8;
+$line-soft: #eef1ef;
+
+// 警示 / 红
+$amber: #f59e0b;
+$amber-dark: #a06a18;
+$amber-bg: #fef4e2;
+$red: #dc2626;
+$red-bg: #fee9e9;
+
+// 圆角
+$r-sm: 16rpx;
+$r-md: 24rpx;
+$r-lg: 32rpx;
+$r-xl: 36rpx;
+$r-2xl: 48rpx;
+$r-pill: 999rpx;
+
+// 阴影
+$shadow-card: 0 16rpx 48rpx rgba(15,31,26,0.06);
+$shadow-fab: 0 8rpx 20rpx rgba(11,157,106,0.30);
+$shadow-toast: 0 24rpx 56rpx rgba(0,0,0,0.22);
+
+// uView 兼容
+$u-primary: $green;
+$u-success: $green;
+$u-warning: $amber;
+$u-error: $red;
+$u-info: $text-mute;
+
+// uni-app 内置变量
+$uni-color-primary: $green;
+$uni-color-success: $green;
+$uni-color-warning: $amber;
+$uni-color-error: $red;
+$uni-text-color: $text;
 $uni-text-color-inverse: #fff;
-$uni-text-color-grey: #6b7280;
-$uni-text-color-placeholder: #9ca3af;
-
-$uni-bg-color: #fff;
-$uni-bg-color-grey: #f4f6f8;
-
-$uni-border-color: #e5e7eb;
-$uni-border-radius-lg: 16rpx;
+$uni-text-color-grey: $text-mute;
+$uni-text-color-placeholder: $text-soft;
+$uni-bg-color: $card;
+$uni-bg-color-grey: $bg;
+$uni-border-color: $line;
+$uni-border-radius-lg: $r-lg;
