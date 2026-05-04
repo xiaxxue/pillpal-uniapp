@@ -14,15 +14,72 @@
     </view>
 
     <scroll-view scroll-y class="main-scroll">
+      <!-- 加载中 -->
+      <view v-if="loading" class="loading-state">
+        <view class="skel-hero" />
+        <view class="skel-row"><view class="skel-block" /><view class="skel-block" /><view class="skel-block" /></view>
+        <view class="skel-card" /><view class="skel-card" />
+      </view>
+
       <!-- 空状态 -->
-      <view v-if="medications.length === 0" class="empty-state">
+      <view v-else-if="medications.length === 0" class="empty-state">
         <text class="empty-icon">💊</text>
         <text class="empty-title">还没有添加药品</text>
         <text class="empty-desc">添加你正在服用的药品，PillPal 帮你管理每日用药</text>
         <button class="btn-green" @click="openAddMed">+ 添加第一种药品</button>
       </view>
 
-      <view v-else>
+      <!-- 长辈版首页 -->
+      <view v-else-if="elderMode && medications.length > 0" class="elder-home">
+        <view class="elder-greeting">
+          <xiaopai-elder mood="happy" :size="80" />
+          <view>
+            <text class="elder-hello">{{ greeting }}，{{ displayName }}</text>
+            <text class="elder-date">{{ todayDisplay }}</text>
+          </view>
+        </view>
+
+        <!-- 下一个药 -->
+        <view v-if="nextMed" class="elder-next-card">
+          <text class="elder-next-label">下一个该吃的药</text>
+          <text class="elder-next-time">{{ nextMed.nextTime }}</text>
+          <text class="elder-next-name">{{ nextMed.name }}</text>
+          <text class="elder-next-detail">{{ nextMed.dosage }} · {{ nextMed.condition }}</text>
+        </view>
+        <view v-else class="elder-next-card elder-done">
+          <xiaopai-elder mood="celebrate" :size="80" />
+          <text class="elder-done-text">今天的药都吃完了！</text>
+        </view>
+
+        <!-- 进度 -->
+        <view class="elder-progress">
+          <text class="elder-prog-text">今日进度 {{ doneCount }}/{{ totalMeds }}</text>
+          <view class="elder-prog-bar"><view class="elder-prog-fill" :style="{ width: (totalMeds > 0 ? doneCount/totalMeds*100 : 0) + '%' }" /></view>
+        </view>
+
+        <!-- 药品列表（简化） -->
+        <view v-for="time in timeSlots" :key="time">
+          <view v-if="getSlotMeds(time).length > 0">
+            <text class="elder-slot-title">{{ getSlotName(time) }} · {{ time }}</text>
+            <view v-for="med in getSlotMeds(time)" :key="med.id + '_' + time" class="elder-med-card" :class="{ done: isDone(med, time) }">
+              <view class="elder-med-info">
+                <text class="elder-med-name">{{ med.name }}</text>
+                <text class="elder-med-dose">{{ med.dosage }}</text>
+              </view>
+              <view v-if="isDone(med, time)">
+                <text class="elder-status-done">✓ 已服</text>
+              </view>
+              <view v-else-if="isToday" @click="handleTake(med, time)">
+                <text class="elder-btn-take">吃药打卡</text>
+              </view>
+            </view>
+          </view>
+        </view>
+
+        <view style="height: 160rpx;" />
+      </view>
+
+      <view v-else-if="medications.length > 0">
         <!-- 日期条 -->
         <view class="date-strip">
           <view v-for="d in dateRange" :key="d.dateStr"
@@ -291,6 +348,7 @@ import { getGreeting, getTodayStr, getDateRange, getMedKey, normalizeTime, getHo
 import ProgressRing from '../../components/ProgressRing.vue'
 import Sheet from '../../components/Sheet.vue'
 import Confetti from '../../components/Confetti.vue'
+import XiaopaiElder from '../../components/Xiaopai.vue'
 
 const userStore = useUserStore()
 const medsStore = useMedicationsStore()
@@ -298,6 +356,10 @@ const recordsStore = useRecordsStore()
 const elderMode = computed(() => userStore.elderMode)
 
 // ── 基础数据 ──
+const todayDisplay = computed(() => {
+  const d = new Date()
+  return `${d.getMonth() + 1}月${d.getDate()}日 ${'周日周一周二周三周四周五周六'.slice(d.getDay() * 2, d.getDay() * 2 + 2)}`
+})
 const greeting = getGreeting()
 const today = getTodayStr()
 const selectedDate = ref(today)
@@ -530,12 +592,14 @@ const goStock = () => uni.switchTab({ url: '/pages/stock/index' })
 const goAssistant = () => uni.switchTab({ url: '/pages/assistant/index' })
 
 // ── 初始化 ──
+const loading = ref(true)
 onShow(async () => {
   if (!userStore.user) await userStore.init()
   if (userStore.user) {
     await medsStore.fetchAll(userStore.user.id)
     await recordsStore.loadRecords(userStore.user.id)
   }
+  loading.value = false
 })
 </script>
 
@@ -551,6 +615,50 @@ onShow(async () => {
 .avatar-text { font-size: 30rpx; font-weight: 700; color: #078558; }
 
 .main-scroll { flex: 1; }
+
+/* ── 长辈版首页 ── */
+.elder-home { padding: 32rpx; }
+.elder-greeting { display: flex; align-items: center; gap: 20rpx; margin-bottom: 32rpx; }
+.elder-hello { font-size: 40rpx; font-weight: 700; color: #22241f; display: block; }
+.elder-date { font-size: 26rpx; color: #6b7670; display: block; margin-top: 4rpx; }
+
+.elder-next-card {
+  background: #0b9d6a; border-radius: 40rpx; padding: 40rpx; color: #fff; margin-bottom: 28rpx;
+}
+.elder-next-label { font-size: 24rpx; opacity: 0.85; display: block; }
+.elder-next-time { font-size: 72rpx; font-weight: 700; font-family: 'Inter', sans-serif; display: block; margin-top: 8rpx; }
+.elder-next-name { font-size: 34rpx; font-weight: 600; display: block; margin-top: 8rpx; }
+.elder-next-detail { font-size: 26rpx; opacity: 0.85; display: block; margin-top: 4rpx; }
+.elder-done { display: flex; flex-direction: column; align-items: center; padding: 48rpx; }
+.elder-done-text { font-size: 36rpx; font-weight: 700; margin-top: 16rpx; }
+
+.elder-progress { margin-bottom: 32rpx; }
+.elder-prog-text { font-size: 28rpx; font-weight: 600; color: #22241f; display: block; margin-bottom: 12rpx; }
+.elder-prog-bar { height: 20rpx; background: #eef1ef; border-radius: 10rpx; overflow: hidden; }
+.elder-prog-fill { height: 100%; background: #0b9d6a; border-radius: 10rpx; transition: width 0.6s; }
+
+.elder-slot-title { font-size: 30rpx; font-weight: 700; color: #22241f; display: block; padding: 24rpx 0 12rpx; }
+.elder-med-card {
+  background: #fffdf8; border: 2rpx solid #e7eae8; border-radius: 28rpx;
+  padding: 28rpx 32rpx; margin-bottom: 16rpx;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.elder-med-card.done { opacity: 0.6; }
+.elder-med-name { font-size: 34rpx; font-weight: 600; display: block; color: #22241f; }
+.elder-med-dose { font-size: 26rpx; color: #6b7670; display: block; margin-top: 4rpx; }
+.elder-status-done { font-size: 28rpx; color: #0b9d6a; font-weight: 600; }
+.elder-btn-take {
+  padding: 20rpx 40rpx; background: #0b9d6a; color: #fff;
+  border-radius: 999rpx; font-size: 30rpx; font-weight: 700;
+}
+
+/* ── 骨架屏 ── */
+.loading-state { padding: 32rpx; }
+.skel-hero { height: 280rpx; background: #e7eae8; border-radius: 48rpx; margin-bottom: 24rpx; animation: shimmer 1.5s infinite; }
+.skel-row { display: flex; gap: 16rpx; margin-bottom: 24rpx; }
+.skel-block { flex: 1; height: 120rpx; background: #e7eae8; border-radius: 24rpx; animation: shimmer 1.5s infinite; }
+.skel-card { height: 140rpx; background: #e7eae8; border-radius: 32rpx; margin-bottom: 16rpx; animation: shimmer 1.5s infinite; }
+@keyframes shimmer { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
 
 /* ── 空状态 ── */
 .empty-state { text-align: center; padding: 160rpx 48rpx; }

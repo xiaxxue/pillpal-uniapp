@@ -59,6 +59,21 @@
         <button class="btn-code-copy" @click="copyCode">复制邀请码</button>
       </view>
 
+      <!-- 用药管理 -->
+      <view class="section-group">
+        <text class="section-group-title">用药管理</text>
+        <view class="section-card">
+          <view class="row" @click="goRecords">
+            <text class="row-icon">📊</text>
+            <view class="row-body">
+              <text class="row-title">服药记录</text>
+              <text class="row-sub">查看依从率和历史记录</text>
+            </view>
+            <text class="row-arrow">›</text>
+          </view>
+        </view>
+      </view>
+
       <!-- 显示设置 -->
       <view class="section-group">
         <text class="section-group-title">显示设置</text>
@@ -131,6 +146,7 @@ const doneCount = computed(() => recordsStore.doneCount)
 const inviteCode = ref('')
 
 const toggleElder = () => { userStore.toggleElderMode() }
+const goRecords = () => { uni.navigateTo({ url: '/pages/records/index' }) }
 
 const generateCode = async () => {
   const code = Math.random().toString(36).substring(2, 8).toUpperCase()
