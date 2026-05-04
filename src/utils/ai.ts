@@ -1,4 +1,5 @@
 import { normalizeTime, getMedKey } from './date'
+import { supabase } from './supabase'
 
 const DEEPSEEK_API_KEY = 'sk-b903314c9e8d40e2b56d37a53252ed17'
 const DEEPSEEK_URL = 'https://api.deepseek.com/chat/completions'
@@ -128,11 +129,68 @@ const tools = [
         required: ['med_name']
       }
     }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_history',
+      description: '查询过去几天的服药历史记录，了解依从率趋势。当用户问"这周吃药情况"、"最近几天"、"坚持了多久"、"依从率是多少"等时调用。',
+      parameters: {
+        type: 'object',
+        properties: {
+          days: { type: 'number', description: '查询过去多少天，默认7天，最多30天' }
+        },
+        required: []
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search_knowledge',
+      description: '搜索专业药学知识库。当用户问药物副作用、相互作用、禁忌症、服药注意事项等专业问题时调用，获取权威参考信息。',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: '搜索关键词，如"二甲双胍 副作用"、"氨氯地平 相互作用"' },
+          drug_names: { type: 'array', items: { type: 'string' }, description: '相关药品名称列表，用于精确过滤' }
+        },
+        required: ['query']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_memory',
+      description: '记住用户提到的重要信息，供以后的对话使用。当用户提到医嘱、过敏史、偏好、习惯等值得长期记住的信息时调用。',
+      parameters: {
+        type: 'object',
+        properties: {
+          memory_type: { type: 'string', enum: ['preference', 'medical_note', 'habit', 'context'], description: '记忆类型' },
+          key: { type: 'string', description: '简短的标识键，如"allergy"、"reply_style"、"doctor_advice_bp"' },
+          value: { type: 'string', description: '记忆内容，一句话描述' }
+        },
+        required: ['memory_type', 'key', 'value']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'generate_report',
+      description: '生成今日服药报告摘要。当用户说"帮我总结一下今天"、"生成报告"、"今天情况怎样"等意思时调用。',
+      parameters: {
+        type: 'object',
+        properties: {},
+        required: []
+      }
+    }
   }
 ]
 
 // ====== 第1层：用户画像 ======
-export function buildUserProfile(user: any, medications: any[]): string {
+export function buildUserProfile(user: any, medications: any[], memoryText = ''): string {
   const name = user?.user_metadata?.display_name || user?.email?.split('@')[0] || '用户'
   const age = user?.user_metadata?.age || ''
   const gender = user?.user_metadata?.gender === 'female' ? '女' : user?.user_metadata?.gender === 'male' ? '男' : ''
@@ -151,7 +209,40 @@ export function buildUserProfile(user: any, medications: any[]): string {
     })
   }
 
+  if (memoryText) profile += '\n' + memoryText
+
   return profile
+}
+
+// ====== 对话后自动提取记忆 ======
+export async function extractMemories(
+  conversation: { role: string; content: string }[]
+): Promise<Array<{ memory_type: string; key: string; value: string; confidence: number }>> {
+  if (conversation.length < 2) return []
+  const text = conversation.map(m => (m.role === 'user' ? '用户：' : '小派：') + m.content).join('\n')
+  try {
+    const res = await fetch(DEEPSEEK_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + DEEPSEEK_API_KEY },
+      body: JSON.stringify({
+        model: 'deepseek-chat',
+        messages: [
+          {
+            role: 'system',
+            content: '从对话中提取值得长期记住的信息（医嘱、过敏、偏好、习惯）。只提取明确表达的内容，不推断。以JSON数组返回，格式：[{"memory_type":"medical_note|preference|habit|context","key":"简短键名","value":"一句话内容","confidence":0.8}]。没有值得记忆的内容则返回[]。只输出JSON，不要其他内容。'
+          },
+          { role: 'user', content: text }
+        ],
+        temperature: 0.1,
+        max_tokens: 300
+      })
+    })
+    const data = await res.json()
+    const raw = data.choices?.[0]?.message?.content || '[]'
+    return JSON.parse(raw.trim().replace(/^```json\n?/, '').replace(/\n?```$/, ''))
+  } catch {
+    return []
+  }
 }
 
 // ====== 第2层：实时数据 ======
@@ -298,8 +389,92 @@ export async function manageHistory(
   return { history, summary: newSummary }
 }
 
+// ====== 内部：流式单步请求 ======
+// 每一步都用 SSE 流式请求：
+//   - 若 AI 返回 tool_calls → 累积 JSON 后返回，不触发 onTextChunk
+//   - 若 AI 返回文本       → 逐块调用 onTextChunk（打字机效果）
+async function fetchStream(
+  messages: any[],
+  onTextChunk?: (chunk: string) => void
+): Promise<{ tool_calls?: any[]; content?: string }> {
+  const response = await fetch(DEEPSEEK_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + DEEPSEEK_API_KEY },
+    body: JSON.stringify({
+      model: 'deepseek-chat', messages, tools, tool_choice: 'auto',
+      temperature: 0.7, max_tokens: 800, stream: true
+    })
+  })
+
+  // 降级：浏览器不支持 ReadableStream
+  if (!response.body) {
+    const fallback = await fetch(DEEPSEEK_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + DEEPSEEK_API_KEY },
+      body: JSON.stringify({ model: 'deepseek-chat', messages, tools, tool_choice: 'auto', temperature: 0.7, max_tokens: 800 })
+    })
+    const data = await fallback.json()
+    const msg = data.choices?.[0]?.message
+    if (msg?.tool_calls?.length) return { tool_calls: msg.tool_calls }
+    const text = msg?.content || ''
+    onTextChunk?.(text)
+    return { content: text }
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let fullContent = ''
+  const toolMap: Record<number, { id: string; name: string; args: string }> = {}
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      const raw = decoder.decode(value, { stream: true })
+      for (const line of raw.split('\n')) {
+        if (!line.startsWith('data: ')) continue
+        const payload = line.slice(6).trim()
+        if (payload === '[DONE]') continue
+        try {
+          const parsed = JSON.parse(payload)
+          const delta = parsed.choices?.[0]?.delta
+          if (!delta) continue
+          // 文本内容
+          if (delta.content) {
+            fullContent += delta.content
+            onTextChunk?.(delta.content)
+          }
+          // 工具调用（流式，需拼接）
+          if (delta.tool_calls) {
+            for (const tc of delta.tool_calls) {
+              const i = tc.index ?? 0
+              if (!toolMap[i]) toolMap[i] = { id: '', name: '', args: '' }
+              if (tc.id) toolMap[i].id = tc.id
+              if (tc.function?.name) toolMap[i].name += tc.function.name
+              if (tc.function?.arguments) toolMap[i].args += tc.function.arguments
+            }
+          }
+        } catch {}
+      }
+    }
+  } finally {
+    reader.releaseLock()
+  }
+
+  const toolCalls = Object.values(toolMap)
+  if (toolCalls.length > 0) {
+    return {
+      tool_calls: toolCalls.map(tc => ({
+        id: tc.id, type: 'function',
+        function: { name: tc.name, arguments: tc.args }
+      }))
+    }
+  }
+  return { content: fullContent }
+}
+
 // ====== ReAct Agent 引擎 ======
-const MAX_STEPS = 5
+const MAX_STEPS = 8
 
 export type AgentStep = {
   type: 'thought' | 'action' | 'observation' | 'response'
@@ -322,7 +497,8 @@ export async function runAgent(
   realtimeData: string,
   history: { role: string; content: string }[],
   executeTool: ToolExecutor,
-  onStep?: (step: AgentStep) => void
+  onStep?: (step: AgentStep) => void,
+  onStream?: (chunk: string) => void
 ): Promise<AgentResult> {
   const steps: AgentStep[] = []
 
@@ -330,26 +506,44 @@ export async function runAgent(
   const messages: any[] = [
     {
       role: 'system',
-      content: `你是"小派"，PillPal 用药管家的 AI 智能体。
+      content: `你是"小派"，PillPal 用药管家的 AI 助手，同时也是一位有温度的健康顾问，拥有专业的医学和药学知识。
 
+## 你的性格
+- 温暖、耐心、可靠，像一个关心你的家人
+- 语气亲切自然，不要机械生硬
+- 适当使用 emoji 增加亲切感，但不要过度堆砌
+- 回答简洁有用，一般 2-4 句话，不要长篇大论
+
+## 用户信息
 ${userProfile}
 ${realtimeData}
 
-你可以使用以下工具来帮助用户。你可以连续调用多个工具来完成复杂任务。
+## 工具使用策略
+- 用户问今日用药 → 调 get_today_status，清晰列出已服/未服
+- 用户说吃了/打卡 → 调 take_med，操作后给鼓励
+- 用户问库存 → 调 get_stock，重点提示 ≤7 天的药
+- 用户问历史/这周/依从率趋势 → 调 get_history（默认7天）
+- 用户问药物知识（副作用、相互作用、用途、漏服怎么办）→ **先调 get_medications 了解用户在服哪些药，然后直接用你的医药知识回答，无需其他工具**
+- 需要多个信息时可以同时调用多个工具（并行执行，效率更高）
+- 不确定数据时先查，不要猜测
 
-例如用户说"帮我看看今天的情况"，你可以：
-1. 先调 get_today_status 查看打卡状态
-2. 再调 get_stock 查看库存
-3. 综合分析后给用户建议
+## 药物知识（直接用你的知识回答，无需工具）
+你具备专业药学知识，可直接回答任何药物的用途、副作用、注意事项、相互作用等问题。
 
-规则：
-- 需要信息时主动调工具查询，不要猜测
-- 可以连续调用多个工具
-- 危险操作（删药、停药、修改库存）先和用户确认再执行，不要直接调工具
-- 用温暖亲切的语气，用 emoji
-- 回答简短实用
-- 涉及调药停药提醒咨询医生
-- 每次回复结尾加一句鼓励或关心的话（如"继续加油💪"、"按时吃药身体棒棒的🌟"、"你做得很好，坚持就是胜利🎉"）`
+漏服补救原则（根据具体药品判断，给出有针对性的建议）：
+- 长效降压药（氨氯地平等）：距下次用药 >12 小时可补，否则跳过，绝不两次叠加
+- 降糖药（二甲双胍等）：餐时/餐后药随下一餐补服；空腹类直接跳过
+- 他汀类（阿托伐他汀等）：当天想起即补；次日才想起则正常服用，无需补
+- 抗凝药（小剂量阿司匹林）：当天补服，次日勿双倍
+- 通用原则：任何情况下都不要一次服双倍剂量
+
+## 重要规则
+- 调药、停药、换药 → 必须说"请先咨询医生"
+- 删除药品 → 先和用户确认再执行
+- 不确定的专业问题 → 诚实说"建议咨询医生或药师"，不要编造
+- 用户情绪低落 → 优先给鼓励和关心，再给信息
+- 用户忘吃药 → 不责备，给出针对该药品的具体补救建议
+- 每次回复结尾加一句自然的关心话，但避免每次都用同一句`
     },
     ...history,
     { role: 'user', content: userMessage }
@@ -360,83 +554,48 @@ ${realtimeData}
     console.log(`Agent Step ${step + 1}/${MAX_STEPS}`)
 
     try {
-      const response = await fetch(DEEPSEEK_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + DEEPSEEK_API_KEY
-        },
-        body: JSON.stringify({
-          model: 'deepseek-chat',
-          messages,
-          tools,
-          tool_choice: 'auto',
-          temperature: 0.7,
-          max_tokens: 500
-        })
-      })
+      const stepResult = await fetchStream(messages, onStream)
 
-      const data = await response.json()
-      console.log(`Step ${step + 1} AI 返回:`, JSON.stringify(data).slice(0, 300))
+      // AI 要调用工具 → Action（并行执行）
+      if (stepResult.tool_calls?.length) {
+        // 把 AI 的回复（含 tool_calls）加入消息历史
+        messages.push({ role: 'assistant', content: null, tool_calls: stepResult.tool_calls })
 
-      if (!data.choices?.[0]) {
-        return { text: '抱歉，暂时无法回答 😅', steps }
-      }
-
-      const msg = data.choices[0].message
-
-      // AI 要调用工具 → Action
-      if (msg.tool_calls?.length > 0) {
-        // 把 AI 的回复（含 tool_calls）加入消息
-        messages.push(msg)
-
-        // 执行每个工具调用
-        for (const call of msg.tool_calls) {
+        // 先记录所有 Action 步骤（让 UI 立即显示）
+        const pending = stepResult.tool_calls.map(call => {
           const toolName = call.function.name
-          const toolArgs = JSON.parse(call.function.arguments)
-
-          // 记录 Action 步骤
-          const actionStep: AgentStep = {
-            type: 'action',
-            content: `调用 ${toolName}`,
-            toolName,
-            toolArgs
-          }
+          const toolArgs = (() => { try { return JSON.parse(call.function.arguments) } catch { return {} } })()
+          const actionStep: AgentStep = { type: 'action', content: `调用 ${toolName}`, toolName, toolArgs }
           steps.push(actionStep)
           onStep?.(actionStep)
+          return { call, toolName, toolArgs }
+        })
 
-          // 执行工具
-          const result = await executeTool(toolName, toolArgs)
-
-          // 记录 Observation 步骤
-          const obsStep: AgentStep = {
-            type: 'observation',
-            content: result
-          }
-          steps.push(obsStep)
-          onStep?.(obsStep)
-
-          // 把工具结果以 tool role 加入消息
-          messages.push({
-            role: 'tool',
-            tool_call_id: call.id,
-            content: result
+        // 并行执行所有工具
+        const toolResults = await Promise.all(
+          pending.map(async ({ call, toolName, toolArgs }) => {
+            const result = await executeTool(toolName, toolArgs)
+            const obsStep: AgentStep = { type: 'observation', content: result }
+            steps.push(obsStep)
+            onStep?.(obsStep)
+            return { id: call.id, result }
           })
-        }
+        )
 
-        // 继续循环，让 AI 根据工具结果决定下一步
+        // 按顺序把工具结果加入消息历史
+        toolResults.forEach(({ id, result }) => {
+          messages.push({ role: 'tool', tool_call_id: id, content: result })
+        })
+
         continue
       }
 
-      // AI 直接回复文本 → Response，循环结束
-      const responseStep: AgentStep = {
-        type: 'response',
-        content: msg.content || ''
-      }
+      // AI 直接回复文本 → Response（已通过 onStream 流式推送）
+      const text = stepResult.content || '抱歉，我没理解 😅'
+      const responseStep: AgentStep = { type: 'response', content: text }
       steps.push(responseStep)
       onStep?.(responseStep)
-
-      return { text: msg.content || '抱歉，我没理解 😅', steps }
+      return { text, steps }
 
     } catch (error) {
       console.error(`Step ${step + 1} 失败:`, error)
@@ -446,6 +605,37 @@ ${realtimeData}
 
   // 超过最大步数
   return { text: '这个问题比较复杂，我已经尽力分析了。如果还有问题请再问我 😊', steps }
+}
+
+// ====== 知识库检索 ======
+const SUPABASE_URL = 'https://tjipfsyiqlbmaehabmvp.supabase.co'
+
+export async function searchKnowledge(query: string, drugNames?: string[]): Promise<string> {
+  try {
+    // 1. 通过 Edge Function 获取 embedding
+    const embedRes = await fetch(`${SUPABASE_URL}/functions/v1/embed`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ input: query })
+    })
+    if (!embedRes.ok) return ''
+    const { embedding } = await embedRes.json()
+    if (!embedding) return ''
+
+    // 2. 向量检索
+    const { data } = await supabase.rpc('match_knowledge', {
+      query_embedding: embedding,
+      match_count: 3,
+      filter_drugs: drugNames?.length ? drugNames : null,
+      min_similarity: 0.65
+    })
+
+    if (!data?.length) return ''
+
+    return data.map((r: any) => `【${r.title}】\n${r.content}`).join('\n\n---\n\n')
+  } catch {
+    return ''
+  }
 }
 
 // 操作完成后生成友好回复

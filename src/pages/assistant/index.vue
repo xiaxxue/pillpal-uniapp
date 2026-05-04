@@ -18,7 +18,7 @@
     <!-- 聊天区 -->
     <scroll-view scroll-y class="chat-scroll" :scroll-into-view="scrollTarget">
       <!-- 欢迎 -->
-      <view v-if="messages.length === 0" class="welcome">
+      <view v-if="messages.length === 0 && !isThinking" class="welcome">
         <view class="welcome-logo">
           <xiaopai-avatar mood="wave" :size="100" />
         </view>
@@ -57,6 +57,19 @@
         </view>
       </view>
 
+      <!-- 流式输出气泡 -->
+      <view v-if="streamingText" class="msg-wrap">
+        <view class="msg-ai">
+          <view class="avatar-ai">
+            <xiaopai-avatar :mood="lastMood" :size="44" />
+          </view>
+          <view class="bubble-ai">
+            <text class="bubble-ai-text">{{ streamingText }}</text>
+            <view class="stream-cursor" />
+          </view>
+        </view>
+      </view>
+
       <!-- 思考中 -->
       <view v-if="isThinking" class="msg-wrap">
         <view class="msg-ai">
@@ -71,15 +84,26 @@
         </view>
       </view>
 
-      <view style="height: 20rpx;" />
+      <view id="stream-anchor" style="height: 20rpx;" />
     </scroll-view>
 
     <!-- 输入栏 -->
     <view class="input-bar">
+      <view v-if="speechSupported && elderMode"
+        class="mic-btn" :class="{ listening: speechState === 'listening' }"
+        @click="toggleSpeech">
+        <text class="mic-icon">{{ speechState === 'listening' ? '⏹' : '🎤' }}</text>
+      </view>
       <input class="chat-input" :value="inputText" @input="inputText = $event.detail.value"
-        placeholder="问问关于吃药的问题…" :disabled="isThinking"
+        :placeholder="speechState === 'listening' ? '正在聆听…' : '问问关于吃药的问题…'"
+        :disabled="isThinking || speechState === 'listening'"
         confirm-type="send" @confirm="send" />
-      <view class="send-btn" :class="{ active: inputText.trim() && !isThinking }" @click="send">
+      <view v-if="speechSupported && !elderMode"
+        class="mic-btn-sm" :class="{ listening: speechState === 'listening' }"
+        @click="toggleSpeech">
+        <text>{{ speechState === 'listening' ? '⏹' : '🎤' }}</text>
+      </view>
+      <view class="send-btn" :class="{ active: inputText.trim() && !isThinking && speechState !== 'listening' }" @click="send">
         <text class="send-arrow">➤</text>
       </view>
     </view>
@@ -97,12 +121,16 @@ import { useRecordsStore } from '../../stores/records'
 import { normalizeTime, getTimeLabel, getMedKey } from '../../utils/date'
 import XiaopaiAvatar from '../../components/Xiaopai.vue'
 import CustomTabBar from '../../components/CustomTabBar.vue'
-import { runAgent, buildUserProfile, buildRealtimeData, manageHistory } from '../../utils/ai'
+import { runAgent, buildUserProfile, buildRealtimeData, manageHistory, extractMemories, searchKnowledge } from '../../utils/ai'
 import type { AgentStep } from '../../utils/ai'
+import { useMemoryStore } from '../../stores/memory'
+import { createSpeechRecognizer, isSpeechSupported } from '../../utils/speech'
+import type { SpeechState, SpeechRecognizer } from '../../utils/speech'
 
 const userStore = useUserStore()
 const medsStore = useMedicationsStore()
 const recordsStore = useRecordsStore()
+const memoryStore = useMemoryStore()
 
 const elderMode = computed(() => userStore.elderMode)
 const displayName = computed(() => userStore.displayName)
@@ -110,10 +138,14 @@ const displayName = computed(() => userStore.displayName)
 onShow(async () => {
   if (!userStore.user) await userStore.init()
   if (userStore.user) {
-    await medsStore.fetchAll(userStore.user.id)
-    await recordsStore.loadRecords(userStore.user.id)
-    userProfile.value = buildUserProfile(userStore.user, medications.value)
+    await Promise.all([
+      medsStore.fetchAll(userStore.user.id),
+      recordsStore.loadRecords(userStore.user.id),
+      memoryStore.load(userStore.user.id)
+    ])
+    userProfile.value = buildUserProfile(userStore.user, medications.value, memoryStore.toPromptText())
   }
+  if (messages.value.length === 0 && userStore.user) autoGreet()
 })
 const medications = computed(() => medsStore.medications)
 const records = computed(() => recordsStore.records)
@@ -123,6 +155,7 @@ const inputText = ref('')
 const scrollTarget = ref('')
 const isThinking = ref(false)
 const thinkingSteps = ref<string[]>([])
+const streamingText = ref('')
 const historySummary = ref('')
 const userProfile = ref('')
 
@@ -209,7 +242,14 @@ const processQuestion = async (text: string) => {
     if (name === 'update_stock') return await executeUpdateStock(userId!, args.med_name, args.quantity)
     if (name === 'add_medication') return await executeAddMed(userId!, args)
     if (name === 'remove_medication') return await executeRemoveMed(userId!, args.med_name)
-    return '未知工���: ' + name
+    if (name === 'search_knowledge') return await searchKnowledge(args.query, args.drug_names) || '知识库暂无相关内容，将根据通用医学知识回答。'
+    if (name === 'get_history') return await executeGetHistory(userId!, args.days || 7)
+    if (name === 'update_memory') {
+      await memoryStore.upsert(userId!, args.memory_type, args.key, args.value, 0.9, 'user_stated')
+      return `已记住：${args.value}`
+    }
+    if (name === 'generate_report') return executeGenerateReport()
+    return '未知工具: ' + name
   }
 
   const onStep = (step: AgentStep) => {
@@ -217,19 +257,49 @@ const processQuestion = async (text: string) => {
       const labels: Record<string, string> = {
         get_today_status: '📋 查询今日状态...', get_stock: '📦 查询库存...', get_medications: '💊 查询药品...',
         take_med: '✅ 正在打卡...', skip_med: '⏭ 记录跳过...', undo_med: '↩ 正在撤回...',
-        update_stock: '📝 修改库存...', add_medication: '💊 添加药品...', remove_medication: '🗑 移除药品...'
+        update_stock: '📝 修改库存...', add_medication: '💊 添加药品...', remove_medication: '🗑 移除药品...',
+        get_history: '📅 查询历史记录...', generate_report: '📊 生成服药报告...'
       }
       thinkingSteps.value.push(labels[step.toolName || ''] || '🔧 执行操作...')
     }
   }
 
-  const result = await runAgent(text, userProfile.value, realtimeData, history, executeTool, onStep)
+  let streamStarted = false
+  const result = await runAgent(
+    text, userProfile.value, realtimeData, history, executeTool, onStep,
+    (chunk) => {
+      if (!streamStarted) {
+        streamStarted = true
+        isThinking.value = false
+        thinkingSteps.value = []
+      }
+      streamingText.value += chunk
+      nextTick(() => { scrollTarget.value = 'stream-anchor' })
+    }
+  )
   if (userId) {
     await medsStore.fetchAll(userId); await recordsStore.loadRecords(userId)
     userProfile.value = buildUserProfile(userStore.user, medications.value)
   }
   isThinking.value = false; thinkingSteps.value = []
+  streamingText.value = ''
   addMsg(result.text, 'assistant')
+
+  // 后台异步提取本轮记忆（不影响体验）
+  const userId2 = userStore.user?.id
+  if (userId2 && messages.value.length >= 4) {
+    const recentMsgs = messages.value.slice(-6).map(m => ({
+      role: m.role === 'user' ? 'user' : 'assistant', content: m.text
+    }))
+    extractMemories(recentMsgs).then(items => {
+      items.forEach(item => {
+        memoryStore.upsert(userId2, item.memory_type as any, item.key, item.value, item.confidence, 'ai_inferred')
+      })
+      if (items.length > 0) {
+        userProfile.value = buildUserProfile(userStore.user, medications.value, memoryStore.toPromptText())
+      }
+    })
+  }
 }
 
 // === 工具执行函数 ===
@@ -300,6 +370,100 @@ const executeRemoveMed = async (userId: string, medName: string): Promise<string
   if (!med) return `没找到药品"${medName}"`
   await medsStore.remove(userId, med.id)
   return `已从用药计划中移除 ${med.name}`
+}
+
+// === 历史查询 ===
+const executeGetHistory = async (userId: string, days: number): Promise<string> => {
+  const n = Math.min(Math.max(days, 1), 30)
+  const total = medications.value.reduce((s, m) => s + (m.times?.length || 1), 0)
+  if (total === 0) return '还没有添加药品，无法查询历史记录。'
+  let result = `过去 ${n} 天服药记录（每天应服 ${total} 次）：\n`
+  let totalDone = 0, totalSlots = 0
+  for (let i = 1; i <= n; i++) {
+    const date = new Date()
+    date.setDate(date.getDate() - i)
+    const dateStr = date.toISOString().slice(0, 10)
+    const dayRecords = await recordsStore.loadRecords(userId, dateStr)
+    const done = Object.values(dayRecords).filter((v: string) => v.startsWith('done_')).length
+    const skip = Object.values(dayRecords).filter((v: string) => v.startsWith('skip_')).length
+    const rate = Math.round(done / total * 100)
+    const icon = rate >= 80 ? '✅' : rate >= 50 ? '⚠️' : '❌'
+    result += `${dateStr}：${done}/${total}（${rate}%）${skip > 0 ? ` 跳过${skip}次` : ''} ${icon}\n`
+    totalDone += done; totalSlots += total
+  }
+  const avgRate = totalSlots > 0 ? Math.round(totalDone / totalSlots * 100) : 0
+  result += `\n${n} 天平均依从率：${avgRate}%`
+  return result
+}
+
+const executeGenerateReport = (): string => {
+  const total = medications.value.reduce((s, m) => s + (m.times?.length || 1), 0)
+  const done = Object.values(records.value).filter(v => v.startsWith('done_')).length
+  const skip = Object.values(records.value).filter(v => v.startsWith('skip_')).length
+  const rate = total > 0 ? Math.round(done / total * 100) : 0
+  let report = `📊 今日服药报告\n`
+  report += `总计 ${total} 次，已服 ${done} 次，跳过 ${skip} 次\n`
+  report += `今日依从率：${rate}%\n\n`
+  medications.value.forEach(m => {
+    const daily = m.daily_usage || 1
+    const days = m.stock_count > 0 ? Math.floor(m.stock_count / daily) : 0
+    report += `💊 ${m.name}（${m.dosage}）\n`
+    report += `   库存 ${m.stock_count} 片，约 ${days} 天${days <= 7 ? ' ⚠️需补货' : ''}\n`
+  })
+  return report
+}
+
+// === 主动问候 ===
+const autoGreet = async () => {
+  if (!userStore.user || messages.value.length > 0) return
+  const hour = new Date().getHours()
+  const timeWord = hour < 6 ? '深夜了' : hour < 12 ? '早上好' : hour < 14 ? '中午好' : hour < 18 ? '下午好' : '晚上好'
+  isThinking.value = true
+  thinkingSteps.value = ['小派正在准备...']
+  const realtimeData = buildRealtimeData(medications.value, records.value)
+  let streamStarted = false
+  const result = await runAgent(
+    `${timeWord}！请主动查看今日用药情况，用温暖简短的方式汇报状态，并给出提醒或鼓励。`,
+    userProfile.value, realtimeData, [], executeTool, onStep,
+    (chunk) => {
+      if (!streamStarted) { streamStarted = true; isThinking.value = false; thinkingSteps.value = [] }
+      streamingText.value += chunk
+    }
+  )
+  isThinking.value = false
+  thinkingSteps.value = []
+  streamingText.value = ''
+  addMsg(result.text, 'assistant')
+}
+
+// === 语音输入 ===
+const speechSupported = ref(false)
+const speechState = ref<SpeechState>('idle')
+let recognizer: SpeechRecognizer | null = null
+
+onShow(async () => {
+  speechSupported.value = isSpeechSupported()
+})
+
+const toggleSpeech = () => {
+  if (isThinking.value || streamingText.value) return
+  if (speechState.value === 'listening') {
+    recognizer?.stop()
+    return
+  }
+  recognizer = createSpeechRecognizer({
+    onResult: (text, isFinal) => {
+      inputText.value = text
+      if (isFinal) {
+        recognizer?.destroy()
+        recognizer = null
+        if (text.trim()) { processQuestion(text.trim()); inputText.value = '' }
+      }
+    },
+    onStateChange: (state) => { speechState.value = state },
+    onError: (msg) => uni.showToast({ title: msg, icon: 'none' })
+  })
+  recognizer?.start()
 }
 
 const ask = (text: string) => processQuestion(text)
@@ -378,6 +542,13 @@ const send = () => { if (inputText.value.trim() && !isThinking.value) { processQ
 }
 .bubble-ai-text { font-size: 26rpx; color: #0f1f1a; line-height: 1.6; white-space: pre-line; }
 
+/* 流式光标 */
+.stream-cursor {
+  display: inline-block; width: 3rpx; height: 28rpx;
+  background: #0b9d6a; margin-left: 4rpx; vertical-align: middle;
+  animation: blink 1s infinite;
+}
+
 /* 思考 */
 .thinking { min-width: 200rpx; }
 .think-step { margin-bottom: 8rpx; }
@@ -390,6 +561,20 @@ const send = () => { if (inputText.value.trim() && !isThinking.value) { processQ
   padding: 16rpx 24rpx 16rpx; background: #fff;
   border-top: 2rpx solid #e7eae8; display: flex; gap: 12rpx; align-items: center;
 }
+.mic-btn {
+  width: 96rpx; height: 96rpx; border-radius: 50%;
+  background: #e7f6ef; border: 2rpx solid #0b9d6a;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  transition: background 0.2s;
+}
+.mic-btn.listening { background: #ff4d4f; border-color: #ff4d4f; animation: pulse 1s infinite; }
+.mic-btn-sm {
+  width: 64rpx; height: 64rpx; border-radius: 50%;
+  background: #e7f6ef; display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  font-size: 28rpx;
+}
+.mic-btn-sm.listening { background: #ffe7e7; animation: pulse 1s infinite; }
+@keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.08); } }
 .chat-input {
   flex: 1; height: 76rpx; padding: 0 28rpx;
   background: #f6f8f7; border: 2rpx solid #e7eae8;

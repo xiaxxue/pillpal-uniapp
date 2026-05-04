@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { supabase } from '../utils/supabase'
+import { schedulePushJobs, cancelPushJobs } from '../utils/push'
 
 export const useMedicationsStore = defineStore('medications', () => {
   const medications = ref<any[]>([])
@@ -19,6 +20,8 @@ export const useMedicationsStore = defineStore('medications', () => {
     const { data, error } = await supabase.from('medications').insert(med).select().single()
     if (error) return null
     medications.value.push(data)
+    // 后台调度推送提醒
+    if (data.times?.length) schedulePushJobs(userId, data.name, data.times)
     return data
   }
 
@@ -31,8 +34,10 @@ export const useMedicationsStore = defineStore('medications', () => {
 
   const remove = async (userId: string, medId: string) => {
     if (!medId || medId.length < 10) return
+    const med = medications.value.find(m => m.id === medId)
     await supabase.from('medications').delete().eq('id', medId).eq('user_id', userId)
     medications.value = medications.value.filter(m => m.id !== medId)
+    if (med) cancelPushJobs(userId, med.name)
   }
 
   const deductStock = async (userId: string, medId: string) => {
