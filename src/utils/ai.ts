@@ -608,30 +608,14 @@ ${realtimeData}
 }
 
 // ====== 知识库检索 ======
-const SUPABASE_URL = 'https://tjipfsyiqlbmaehabmvp.supabase.co'
-
 export async function searchKnowledge(query: string, drugNames?: string[]): Promise<string> {
   try {
-    // 1. 通过 Edge Function 获取 embedding
-    const embedRes = await fetch(`${SUPABASE_URL}/functions/v1/embed`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ input: query })
-    })
-    if (!embedRes.ok) return ''
-    const { embedding } = await embedRes.json()
-    if (!embedding) return ''
-
-    // 2. 向量检索
-    const { data } = await supabase.rpc('match_knowledge', {
-      query_embedding: embedding,
-      match_count: 3,
+    const { data } = await supabase.rpc('search_knowledge_text', {
+      query_text: query,
       filter_drugs: drugNames?.length ? drugNames : null,
-      min_similarity: 0.65
+      match_count: 3
     })
-
     if (!data?.length) return ''
-
     return data.map((r: any) => `【${r.title}】\n${r.content}`).join('\n\n---\n\n')
   } catch {
     return ''
