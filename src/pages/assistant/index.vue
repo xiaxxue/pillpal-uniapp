@@ -18,7 +18,7 @@
     <!-- 聊天区 -->
     <scroll-view scroll-y class="chat-scroll" :scroll-into-view="scrollTarget">
       <!-- 欢迎 -->
-      <view v-if="messages.length === 0 && !isThinking" class="welcome">
+      <view v-if="messages.length === 0 && !isThinking && !isGreeting" class="welcome">
         <view class="welcome-logo">
           <xiaopai-avatar mood="wave" :size="100" />
         </view>
@@ -70,8 +70,8 @@
         </view>
       </view>
 
-      <!-- 思考中 -->
-      <view v-if="isThinking" class="msg-wrap">
+      <!-- 思考中 / 问候加载中 -->
+      <view v-if="isThinking || isGreeting" class="msg-wrap">
         <view class="msg-ai">
           <view class="avatar-ai">
             <xiaopai-avatar :mood="lastMood" :size="44" />
@@ -96,14 +96,14 @@
       </view>
       <input class="chat-input" :value="inputText" @input="inputText = $event.detail.value"
         :placeholder="speechState === 'listening' ? '正在聆听…' : '问问关于吃药的问题…'"
-        :disabled="isThinking || speechState === 'listening'"
+        :disabled="isThinking"
         confirm-type="send" @confirm="send" />
       <view v-if="speechSupported && !elderMode"
         class="mic-btn-sm" :class="{ listening: speechState === 'listening' }"
         @click="toggleSpeech">
         <text>{{ speechState === 'listening' ? '⏹' : '🎤' }}</text>
       </view>
-      <view class="send-btn" :class="{ active: inputText.trim() && !isThinking && speechState !== 'listening' }" @click="send">
+      <view class="send-btn" :class="{ active: inputText.trim() && !isThinking }" @click="send">
         <text class="send-arrow">➤</text>
       </view>
     </view>
@@ -162,6 +162,7 @@ const scrollTarget = ref('')
 const isThinking = ref(false)
 const thinkingSteps = ref<string[]>([])
 const streamingText = ref('')
+const isGreeting = ref(false)  // 自动问候专用，不阻塞输入框
 const historySummary = ref('')
 const userProfile = ref('')
 
@@ -419,27 +420,33 @@ const executeGenerateReport = (): string => {
   return report
 }
 
-// === 主动问候 ===
+// === 主动问候（不阻塞输入框）===
 const autoGreet = async () => {
   if (!userStore.user) return
   const hour = new Date().getHours()
   const timeWord = hour < 6 ? '深夜了' : hour < 12 ? '早上好' : hour < 14 ? '中午好' : hour < 18 ? '下午好' : '晚上好'
-  isThinking.value = true
-  thinkingSteps.value = ['小派正在准备...']
+  isGreeting.value = true
   const realtimeData = buildRealtimeData(medications.value, records.value)
-  let streamStarted = false
-  const result = await runAgent(
-    `${timeWord}！请主动查看今日用药情况，用温暖简短的方式汇报状态，并给出提醒或鼓励。`,
-    userProfile.value, realtimeData, [], executeTool, onStep,
-    (chunk) => {
-      if (!streamStarted) { streamStarted = true; isThinking.value = false; thinkingSteps.value = [] }
-      streamingText.value += chunk
-    }
+  const timeout = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error('timeout')), 12000)
   )
-  isThinking.value = false
-  thinkingSteps.value = []
-  streamingText.value = ''
-  addMsg(result.text, 'assistant')
+  try {
+    const result = await Promise.race([
+      runAgent(
+        `${timeWord}！请主动查看今日用药情况，用温暖简短的方式汇报状态，并给出提醒或鼓励。`,
+        userProfile.value, realtimeData, [], executeTool, undefined,
+        (chunk) => { streamingText.value += chunk }
+      ),
+      timeout
+    ])
+    streamingText.value = ''
+    addMsg(result.text, 'assistant')
+  } catch {
+    streamingText.value = ''
+    // 静默失败，用户可自己开口
+  } finally {
+    isGreeting.value = false
+  }
 }
 
 // === 语音输入 ===
