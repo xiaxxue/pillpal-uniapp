@@ -133,7 +133,7 @@ import CustomTabBar from '../../components/CustomTabBar.vue'
 import { runAgent, buildUserProfile, buildRealtimeData, manageHistory, extractMemories, searchKnowledge } from '../../utils/ai'
 import type { AgentStep } from '../../utils/ai'
 import { useMemoryStore } from '../../stores/memory'
-import { createSpeechRecognizer, isSpeechSupported, speak, stopSpeaking } from '../../utils/speech'
+import { createSpeechRecognizer, isSpeechSupported, TTSPlayer, SentenceDetector } from '../../utils/speech'
 import type { SpeechState, SpeechRecognizer } from '../../utils/speech'
 
 const userStore = useUserStore()
@@ -246,7 +246,7 @@ const quickQuestions = computed(() => {
 const clearChat = () => {
   if (messages.value.length) {
     messages.value = []; historySummary.value = ''
-    stopSpeaking(); speakingMsgId.value = null
+    ttsPlayer.stop(); speakingMsgId.value = null
   }
 }
 
@@ -287,6 +287,11 @@ const processQuestion = async (text: string) => {
   }
 
   let streamStarted = false
+  let sentenceDetector: SentenceDetector | null = null
+  if (ttsEnabled.value) {
+    ttsPlayer.reset()
+    sentenceDetector = new SentenceDetector((sentence) => ttsPlayer.enqueue(sentence))
+  }
   const result = await runAgent(
     text, userProfile.value, realtimeData, history, executeTool, onStep,
     (chunk) => {
@@ -296,9 +301,11 @@ const processQuestion = async (text: string) => {
         thinkingSteps.value = []
       }
       streamingText.value += chunk
+      sentenceDetector?.feed(chunk)
       nextTick(() => { scrollTarget.value = 'stream-anchor' })
     }
   )
+  sentenceDetector?.flush()
   if (userId) {
     await medsStore.fetchAll(userId); await recordsStore.loadRecords(userId)
     userProfile.value = buildUserProfile(userStore.user, medications.value, memoryStore.toPromptText())
@@ -306,15 +313,8 @@ const processQuestion = async (text: string) => {
   isThinking.value = false; thinkingSteps.value = []
   streamingText.value = ''
   addMsg(result.text, 'assistant')
-
-  // 语音播报（当 ttsEnabled 开启时自动朗读）
-  if (ttsEnabled.value && result.text) {
-    const latestMsg = messages.value[messages.value.length - 1]
-    speakingMsgId.value = latestMsg.id
-    speak(result.text, {
-      onEnd: () => { speakingMsgId.value = null },
-      onError: () => { speakingMsgId.value = null }
-    })
+  if (ttsEnabled.value && ttsPlayer.isSpeaking) {
+    speakingMsgId.value = messages.value[messages.value.length - 1].id
   }
 
   // 后台异步提取本轮记忆（不影响体验）
@@ -542,22 +542,23 @@ const autoGreet = async () => {
   const timeout = new Promise<never>((_, reject) =>
     setTimeout(() => reject(new Error('timeout')), 12000)
   )
+  let greetDetector: SentenceDetector | null = null
+  if (ttsEnabled.value) {
+    ttsPlayer.reset()
+    greetDetector = new SentenceDetector((sentence) => ttsPlayer.enqueue(sentence))
+  }
   try {
     const result = await Promise.race([
       runAgent(greetPrompt, userProfile.value, realtimeData, [], executeTool, undefined,
-        (chunk) => { streamingText.value += chunk }
+        (chunk) => { streamingText.value += chunk; greetDetector?.feed(chunk) }
       ),
       timeout
     ])
+    greetDetector?.flush()
     streamingText.value = ''
     addMsg(result.text, 'assistant')
-    if (ttsEnabled.value && result.text) {
-      const latestMsg = messages.value[messages.value.length - 1]
-      speakingMsgId.value = latestMsg.id
-      speak(result.text, {
-        onEnd: () => { speakingMsgId.value = null },
-        onError: () => { speakingMsgId.value = null }
-      })
+    if (ttsEnabled.value && ttsPlayer.isSpeaking) {
+      speakingMsgId.value = messages.value[messages.value.length - 1].id
     }
   } catch {
     streamingText.value = ''
@@ -570,31 +571,30 @@ const autoGreet = async () => {
 const speechState = ref<SpeechState>('idle')
 let recognizer: SpeechRecognizer | null = null
 
-// === 语音输出 ===
+// === 语音输出（Edge TTS）===
+const ttsPlayer = new TTSPlayer()
 const ttsEnabled = ref(uni.getStorageSync('pillpal_tts_enabled') === 'true')
 const speakingMsgId = ref<string | null>(null)
+ttsPlayer.onStateChange = (speaking) => { if (!speaking) speakingMsgId.value = null }
 
 const toggleTTS = () => {
   ttsEnabled.value = !ttsEnabled.value
   uni.setStorageSync('pillpal_tts_enabled', String(ttsEnabled.value))
-  if (!ttsEnabled.value) { stopSpeaking(); speakingMsgId.value = null }
+  if (!ttsEnabled.value) { ttsPlayer.stop(); speakingMsgId.value = null }
   uni.showToast({ title: ttsEnabled.value ? '语音播报已开启' : '语音播报已关闭', icon: 'none', duration: 1500 })
 }
 
 const speakMessage = (msg: { id: string; text: string }) => {
   if (speakingMsgId.value === msg.id) {
-    stopSpeaking(); speakingMsgId.value = null; return
+    ttsPlayer.stop(); speakingMsgId.value = null; return
   }
   speakingMsgId.value = msg.id
-  speak(msg.text, {
-    onEnd: () => { speakingMsgId.value = null },
-    onError: () => { speakingMsgId.value = null }
-  })
+  ttsPlayer.speak(msg.text)
 }
 
 const toggleSpeech = () => {
   if (isThinking.value || streamingText.value) return
-  stopSpeaking(); speakingMsgId.value = null
+  ttsPlayer.stop(); speakingMsgId.value = null
   if (speechState.value === 'listening') {
     recognizer?.stop()
     return
@@ -618,8 +618,8 @@ const toggleSpeech = () => {
   recognizer?.start()
 }
 
-const ask = (text: string) => { stopSpeaking(); speakingMsgId.value = null; processQuestion(text) }
-const send = () => { if (inputText.value.trim() && !isThinking.value) { stopSpeaking(); speakingMsgId.value = null; processQuestion(inputText.value.trim()); inputText.value = '' } }
+const ask = (text: string) => { ttsPlayer.stop(); speakingMsgId.value = null; processQuestion(text) }
+const send = () => { if (inputText.value.trim() && !isThinking.value) { ttsPlayer.stop(); speakingMsgId.value = null; processQuestion(inputText.value.trim()); inputText.value = '' } }
 </script>
 
 <style lang="scss" scoped>

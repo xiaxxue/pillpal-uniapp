@@ -63,42 +63,147 @@ export function isSpeechSupported(): boolean {
   )
 }
 
-// ===== 语音输出（Text-to-Speech）=====
+// ===== 语音输出（Edge TTS — 微软神经语音）=====
+// 使用 Edge 浏览器内置的 TTS 服务，免费、高质量中文语音
+// 通过 WebSocket 直连微软 TTS 服务，返回 MP3 音频
 
-export function isTTSSupported(): boolean {
-  return typeof window !== 'undefined' && 'speechSynthesis' in window
+const EDGE_TTS_TOKEN = '6A5AA1D4EAFF4E9FB37E23D68491D6F4'
+const EDGE_TTS_VOICE = 'zh-CN-XiaoxiaoNeural'
+
+function escapeXml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
-function cleanForSpeech(text: string): string {
+function cleanForTTS(text: string): string {
   return text
-    .replace(/<[^>]+>/g, '')        // 去除 HTML 标签
-    .replace(/\*\*/g, '')           // 去除加粗 **
-    .replace(/\*/g, '')             // 去除斜体 *
-    .replace(/^#{1,6}\s*/gm, '')    // 去除标题 #
-    .replace(/【|】/g, '')          // 去除方括号
-    .replace(/\n{2,}/g, '。')       // 多空行 → 句号停顿
-    .replace(/\n/g, '，')           // 单换行 → 逗号停顿
+    .replace(/<[^>]+>/g, '').replace(/\*\*/g, '').replace(/\*/g, '')
+    .replace(/^#{1,6}\s*/gm, '').replace(/【|】/g, '')
     .trim()
 }
 
-export function speak(text: string, options?: {
-  onEnd?: () => void
-  onError?: (msg: string) => void
-}): void {
-  if (!isTTSSupported()) return
-  window.speechSynthesis.cancel()
-  const clean = cleanForSpeech(text)
-  if (!clean) return
-  const utterance = new SpeechSynthesisUtterance(clean)
-  utterance.lang = 'zh-CN'
-  utterance.rate = 0.9
-  utterance.pitch = 1.0
-  utterance.volume = 1.0
-  utterance.onend = () => options?.onEnd?.()
-  utterance.onerror = () => options?.onError?.('语音播报出现错误')
-  window.speechSynthesis.speak(utterance)
+function synthesizeEdgeTTS(text: string): Promise<Blob> {
+  const clean = cleanForTTS(text)
+  if (!clean) return Promise.resolve(new Blob())
+
+  const id = crypto.randomUUID().replace(/-/g, '')
+  const url = `wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=${EDGE_TTS_TOKEN}&ConnectionId=${id}`
+
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(url)
+    const chunks: Uint8Array[] = []
+    const timer = setTimeout(() => { try { ws.close() } catch {} reject(new Error('TTS timeout')) }, 15000)
+
+    ws.onopen = () => {
+      ws.send(
+        `Content-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n` +
+        `{"context":{"synthesis":{"audio":{"metadataoptions":{"sentenceBoundaryEnabled":"false","wordBoundaryEnabled":"false"},"outputFormat":"audio-24khz-48kbitrate-mono-mp3"}}}}`
+      )
+      const ssml = `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='zh-CN'><voice name='${EDGE_TTS_VOICE}'>${escapeXml(clean)}</voice></speak>`
+      ws.send(`X-RequestId:${id}\r\nContent-Type:application/ssml+xml\r\nPath:ssml\r\n\r\n${ssml}`)
+    }
+
+    ws.onmessage = async (event: MessageEvent) => {
+      if (typeof event.data === 'string') {
+        if (event.data.includes('Path:turn.end')) {
+          clearTimeout(timer)
+          try { ws.close() } catch {}
+          resolve(new Blob(chunks, { type: 'audio/mpeg' }))
+        }
+      } else {
+        let buf: ArrayBuffer
+        if (event.data instanceof Blob) buf = await event.data.arrayBuffer()
+        else if (event.data instanceof ArrayBuffer) buf = event.data
+        else return
+        if (buf.byteLength < 2) return
+        const headerLen = new DataView(buf).getUint16(0)
+        if (buf.byteLength > 2 + headerLen) {
+          chunks.push(new Uint8Array(buf, 2 + headerLen))
+        }
+      }
+    }
+
+    ws.onerror = () => { clearTimeout(timer); reject(new Error('TTS WebSocket error')) }
+  })
 }
 
-export function stopSpeaking(): void {
-  if (isTTSSupported()) window.speechSynthesis.cancel()
+// 音频队列播放器：按顺序播放多段音频
+export class TTSPlayer {
+  private queue: Promise<Blob>[] = []
+  private processing = false
+  private currentAudio: HTMLAudioElement | null = null
+  private _stopped = false
+  onStateChange?: (speaking: boolean) => void
+
+  enqueue(text: string) {
+    if (this._stopped) return
+    this.queue.push(synthesizeEdgeTTS(text))
+    if (!this.processing) this.processQueue()
+  }
+
+  private async processQueue() {
+    this.processing = true
+    this.onStateChange?.(true)
+    while (this.queue.length > 0 && !this._stopped) {
+      try {
+        const blob = await this.queue.shift()!
+        if (blob.size > 0 && !this._stopped) await this.playBlob(blob)
+      } catch (e) { console.warn('TTS error:', e) }
+    }
+    this.processing = false
+    this.onStateChange?.(false)
+  }
+
+  private playBlob(blob: Blob): Promise<void> {
+    return new Promise((resolve) => {
+      const url = URL.createObjectURL(blob)
+      const audio = new Audio(url)
+      this.currentAudio = audio
+      const done = () => { URL.revokeObjectURL(url); this.currentAudio = null; resolve() }
+      audio.onended = done
+      audio.onerror = done
+      audio.play().catch(done)
+    })
+  }
+
+  async speak(text: string) {
+    this.stop()
+    this._stopped = false
+    this.enqueue(text)
+  }
+
+  stop() {
+    this._stopped = true
+    this.queue = []
+    if (this.currentAudio) { this.currentAudio.pause(); this.currentAudio = null }
+    this.processing = false
+    this.onStateChange?.(false)
+  }
+
+  reset() { this.stop(); this._stopped = false }
+  get isSpeaking() { return this.processing }
+}
+
+// 流式句子检测器：文字一句一句到达时，检测句末并回调
+export class SentenceDetector {
+  private buf = ''
+  private cb: (sentence: string) => void
+  constructor(onSentence: (sentence: string) => void) { this.cb = onSentence }
+
+  feed(chunk: string) {
+    this.buf += chunk
+    const re = /[。！？；\n!?;]/
+    let m = this.buf.match(re)
+    while (m && m.index !== undefined) {
+      const sentence = this.buf.slice(0, m.index + 1).trim()
+      this.buf = this.buf.slice(m.index + 1)
+      if (sentence) this.cb(sentence)
+      m = this.buf.match(re)
+    }
+  }
+
+  flush() {
+    const rest = this.buf.trim()
+    this.buf = ''
+    if (rest) this.cb(rest)
+  }
 }
