@@ -397,6 +397,7 @@ import { useUserStore } from '../../stores/user'
 import { useMedicationsStore } from '../../stores/medications'
 import { useRecordsStore } from '../../stores/records'
 import { getGreeting, getTodayStr, getDateRange, getMedKey, normalizeTime, getHourFromTime, getTimeIcon, getTimeLabel, collectTimeSlots, TIME_PRESETS } from '../../utils/date'
+import { requestNotifyPermission, startMedReminder } from '../../utils/medReminder'
 import ProgressRing from '../../components/ProgressRing.vue'
 import Sheet from '../../components/Sheet.vue'
 import Confetti from '../../components/Confetti.vue'
@@ -659,6 +660,16 @@ onShow(async () => {
   if (userStore.user) {
     await medsStore.fetchAll(userStore.user.id)
     await recordsStore.loadRecords(userStore.user.id)
+    // 请求通知权限 & 启动用药提醒
+    requestNotifyPermission().then(granted => {
+      if (granted) {
+        startMedReminder(
+          () => medsStore.medications,
+          () => recordsStore.records,
+          getMedKey
+        )
+      }
+    })
   }
   loading.value = false
 })

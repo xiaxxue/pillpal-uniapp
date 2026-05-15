@@ -229,7 +229,21 @@ export async function extractMemories(
         messages: [
           {
             role: 'system',
-            content: '从对话中提取值得长期记住的信息（医嘱、过敏、偏好、习惯）。只提取明确表达的内容，不推断。以JSON数组返回，格式：[{"memory_type":"medical_note|preference|habit|context","key":"简短键名","value":"一句话内容","confidence":0.8}]。没有值得记忆的内容则返回[]。只输出JSON，不要其他内容。'
+            content: `从以下对话中提取值得长期记住的信息。
+
+【只提取同时满足以下所有条件的内容】
+1. 用户明确说出来的事实（不推断、不猜测）
+2. 对未来用药管理有实际帮助：过敏史、医嘱变化、副作用反应、服药偏好、重要病史、就诊结果
+3. 不是今日临时操作（今天打卡、今天跳过这类不记）
+4. 不是药品列表里已有的基础信息（药名剂量等已存储，不重复记）
+
+【置信度标准】
+0.9+ 用户直接陈述的事实（"我对青霉素过敏"）
+0.85 用户明确表达的偏好（"我不喜欢早上吃药"）
+低于0.85 的内容不要提取
+
+以JSON数组返回：[{"memory_type":"medical_note|preference|habit|context","key":"简短键名","value":"一句话内容","confidence":0.0-1.0}]
+没有符合条件的内容返回 []。只输出JSON，不要其他内容。`
           },
           { role: 'user', content: text }
         ],
@@ -406,6 +420,17 @@ async function fetchStream(
     })
   })
 
+  // API 返回错误（余额不足、鉴权失败等）
+  if (!response.ok) {
+    const errData = await response.json().catch(() => ({}))
+    const errMsg = errData?.error?.message || `HTTP ${response.status}`
+    console.error('DeepSeek API 错误:', errMsg)
+    if (response.status === 402) throw new Error('API_BALANCE')
+    if (response.status === 401) throw new Error('API_AUTH')
+    if (response.status === 429) throw new Error('API_RATE_LIMIT')
+    throw new Error('API_ERROR')
+  }
+
   // 降级：浏览器不支持 ReadableStream
   if (!response.body) {
     const fallback = await fetch(DEEPSEEK_URL, {
@@ -518,9 +543,15 @@ export async function runAgent(
 ${userProfile}
 ${realtimeData}
 
+## 澄清原则（先问清楚再执行）
+- 用户说"打卡"/"吃了"，但没说哪种药，且用药计划里有 2 种及以上药 → 先问"是全部都吃了，还是某几种？"，等确认后再调 take_med
+- 用户说"停药"/"删除"/"不吃了" → 先复述药名确认："你是说停用【药名】对吗？停用后记录会删除。"等用户回复确认后才调 remove_medication
+- 用户说"跳过" → 简单问一下原因（"是不舒服，还是医生说可以停一次？"），然后再调 skip_med
+- 用户指令清晰（只有一种药、或明确说了药名/时段）→ 直接执行，不用多问
+
 ## 工具使用策略
 - 用户问今日用药 → 调 get_today_status，清晰列出已服/未服
-- 用户说吃了/打卡 → 调 take_med，操作后给鼓励
+- 用户说吃了/打卡（已澄清）→ 调 take_med，操作后给鼓励
 - 用户问库存 → 调 get_stock，重点提示 ≤7 天的药
 - 用户问历史/这周/依从率趋势 → 调 get_history（默认7天）
 - 用户问药物知识（副作用、相互作用、用途、漏服怎么办）→ **先调 get_medications 了解用户在服哪些药，然后直接用你的医药知识回答，无需其他工具**
@@ -597,9 +628,16 @@ ${realtimeData}
       onStep?.(responseStep)
       return { text, steps }
 
-    } catch (error) {
+    } catch (error: any) {
       console.error(`Step ${step + 1} 失败:`, error)
-      return { text: '网络不太好，请稍后再试 📶', steps }
+      const errMap: Record<string, string> = {
+        'API_BALANCE': '小派的 AI 服务额度用完了，请联系管理员充值 💰',
+        'API_AUTH': '小派的 AI 服务鉴权失败，请检查配置 🔑',
+        'API_RATE_LIMIT': '请求太频繁了，稍等一下再试 ⏳',
+        'API_ERROR': 'AI 服务暂时不可用，请稍后再试 🔧'
+      }
+      const msg = errMap[error?.message] || '网络不太好，请稍后再试 📶'
+      return { text: msg, steps }
     }
   }
 

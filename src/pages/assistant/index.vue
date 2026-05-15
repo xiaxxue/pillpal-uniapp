@@ -52,7 +52,7 @@
             <xiaopai-avatar :mood="lastMood" :size="44" />
           </view>
           <view class="bubble-ai">
-            <text class="bubble-ai-text">{{ msg.text }}</text>
+            <view class="bubble-ai-text" v-html="renderMarkdown(msg.text)" />
           </view>
         </view>
       </view>
@@ -64,7 +64,7 @@
             <xiaopai-avatar :mood="lastMood" :size="44" />
           </view>
           <view class="bubble-ai">
-            <text class="bubble-ai-text">{{ streamingText }}</text>
+            <view class="bubble-ai-text" v-html="renderMarkdown(streamingText)" />
             <view class="stream-cursor" />
           </view>
         </view>
@@ -166,6 +166,21 @@ const isGreeting = ref(false)  // 自动问候专用，不阻塞输入框
 const historySummary = ref('')
 const userProfile = ref('')
 
+// Markdown → HTML（用于 v-html 渲染气泡内容）
+const renderMarkdown = (text: string): string => {
+  if (!text) return ''
+  return text
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.*?)\*/g, '<em>$1</em>')
+    .replace(/【(.*?)】/g, '<span class="md-tag">【$1】</span>')
+    .replace(/^#{1,3}\s+(.+)$/gm, '<span class="md-h">$1</span>')
+    .replace(/^[•·]\s+(.+)$/gm, '<span class="md-li">$1</span>')
+    .replace(/^-\s+(.+)$/gm, '<span class="md-li">$1</span>')
+    .replace(/^(\d+)\.\s+(.+)$/gm, '<span class="md-li"><span class="md-num">$1.</span> $2</span>')
+    .replace(/\n/g, '<br>')
+}
+
 // 根据回复内容判断小派心情
 const pickMood = (text: string): string => {
   if (/全部完成|太棒了|做得好|坚持|加油|🎉|💪/.test(text)) return 'celebrate'
@@ -179,12 +194,48 @@ const pickMood = (text: string): string => {
 }
 const lastMood = ref('wave')
 
-const quickQuestions = [
-  { text: '今天还有哪些药没吃？', icon: '💊' },
-  { text: '帮我全部打卡，都吃了', icon: '✅' },
-  { text: '帮我查一下库存', icon: '📦' },
-  { text: '忘吃药了怎么办？', icon: '❓' },
-]
+const quickQuestions = computed(() => {
+  const meds = medications.value
+  const recs = records.value
+  // 还没有添加药品时，引导新用户
+  if (meds.length === 0) return [
+    { text: '小派能帮我做什么？', icon: '💡' },
+    { text: '怎么添加我的药品？', icon: '➕' },
+    { text: '漏服了药怎么办？', icon: '❓' },
+    { text: '什么是依从率？', icon: '📊' },
+  ]
+  // 计算还有哪些药没打卡
+  const pendingNames = new Set<string>()
+  meds.forEach(m => {
+    m.times?.forEach((t: string) => {
+      const key = getMedKey(m.name, normalizeTime(t))
+      if (!recs[key]) pendingNames.add(m.name)
+    })
+  })
+  const result: { text: string; icon: string }[] = []
+  if (pendingNames.size > 0) {
+    result.push(pendingNames.size === 1
+      ? { text: `${[...pendingNames][0]}吃了，帮我打卡`, icon: '✅' }
+      : { text: '今天的药全吃了，帮我全部打卡', icon: '✅' }
+    )
+    result.push({ text: '今天还有哪些药没吃？', icon: '💊' })
+  } else {
+    result.push({ text: '帮我看看这周的服药情况', icon: '📊' })
+    result.push({ text: '今天全打卡了！继续保持', icon: '🎉' })
+  }
+  // 库存快不够了就提示补货，否则提示查库存
+  const lowMed = meds.find(m => {
+    const days = m.stock_count > 0 ? Math.floor(m.stock_count / (m.daily_usage || 1)) : 0
+    return days <= 7
+  })
+  result.push(lowMed
+    ? { text: `${lowMed.name}买了新的，更新一下库存`, icon: '📦' }
+    : { text: '帮我查一下库存还剩多少', icon: '📦' }
+  )
+  // 用第一种药生成知识问题
+  result.push({ text: `${meds[0].name}有什么需要注意的？`, icon: '❓' })
+  return result
+})
 
 const clearChat = () => {
   if (messages.value.length) { messages.value = []; historySummary.value = '' }
@@ -213,59 +264,14 @@ const processQuestion = async (text: string) => {
   const { history, summary } = await manageHistory(allHistory, historySummary.value)
   historySummary.value = summary
 
-  const executeTool = async (name: string, args: any): Promise<string> => {
-    if (!userId) return '用户未登录'
-    if (name === 'get_today_status') {
-      const total = medications.value.reduce((s, m) => s + (m.times?.length || 1), 0)
-      const done = Object.values(records.value).filter(v => v.startsWith('done_')).length
-      let result = `今日${total}次药中已服${done}次\n`
-      medications.value.forEach(m => {
-        if (!m.times) return
-        m.times.forEach((t: string) => {
-          const time = normalizeTime(t); const label = getTimeLabel(time); const key = getMedKey(m.name, time)
-          const r = records.value[key]
-          const status = r?.startsWith('done_') ? '✅已服(' + r.replace('done_', '') + ')' : r?.startsWith('skip_') ? '⏭已跳过' : '⏳待服用'
-          result += `${m.name} ${label} ${status}\n`
-        })
-      })
-      return result
-    }
-    if (name === 'get_stock') {
-      let result = ''
-      medications.value.forEach(m => {
-        const daily = m.daily_usage || 1; const days = m.stock_count > 0 ? Math.floor(m.stock_count / daily) : 0
-        result += `${m.name}：${m.stock_count}片，${daily}片/天，可服${days}天${days <= 7 ? ' ⚠紧张' : ' ✅充足'}\n`
-      })
-      return result || '没有药品'
-    }
-    if (name === 'get_medications') {
-      let result = ''
-      medications.value.forEach(m => { result += `${m.name}（${m.dosage}），${m.condition}，治${m.disease}，时间：${m.times?.join('、') || '未设置'}\n` })
-      return result || '没有药品'
-    }
-    if (name === 'take_med') return await executeTakeMed(userId!, args.med_name, args.time_slots || [])
-    if (name === 'skip_med') return await executeSkipMed(userId!, args.med_name, args.time_slots || [], args.reason || '其他')
-    if (name === 'undo_med') return await executeUndoMed(userId!, args.med_name, args.time_slots || [])
-    if (name === 'update_stock') return await executeUpdateStock(userId!, args.med_name, args.quantity)
-    if (name === 'add_medication') return await executeAddMed(userId!, args)
-    if (name === 'remove_medication') return await executeRemoveMed(userId!, args.med_name)
-    if (name === 'search_knowledge') return await searchKnowledge(args.query, args.drug_names) || '知识库暂无相关内容，将根据通用医学知识回答。'
-    if (name === 'get_history') return await executeGetHistory(userId!, args.days || 7)
-    if (name === 'update_memory') {
-      await memoryStore.upsert(userId!, args.memory_type, args.key, args.value, 0.9, 'user_stated')
-      return `已记住：${args.value}`
-    }
-    if (name === 'generate_report') return executeGenerateReport()
-    return '未知工具: ' + name
-  }
-
   const onStep = (step: AgentStep) => {
     if (step.type === 'action') {
       const labels: Record<string, string> = {
         get_today_status: '📋 查询今日状态...', get_stock: '📦 查询库存...', get_medications: '💊 查询药品...',
         take_med: '✅ 正在打卡...', skip_med: '⏭ 记录跳过...', undo_med: '↩ 正在撤回...',
         update_stock: '📝 修改库存...', add_medication: '💊 添加药品...', remove_medication: '🗑 移除药品...',
-        get_history: '📅 查询历史记录...', generate_report: '📊 生成服药报告...'
+        get_history: '📅 查询历史记录...', generate_report: '📊 生成服药报告...',
+        search_knowledge: '📚 查询知识库...', update_memory: '🧠 记住这件事...'
       }
       thinkingSteps.value.push(labels[step.toolName || ''] || '🔧 执行操作...')
     }
@@ -286,7 +292,7 @@ const processQuestion = async (text: string) => {
   )
   if (userId) {
     await medsStore.fetchAll(userId); await recordsStore.loadRecords(userId)
-    userProfile.value = buildUserProfile(userStore.user, medications.value)
+    userProfile.value = buildUserProfile(userStore.user, medications.value, memoryStore.toPromptText())
   }
   isThinking.value = false; thinkingSteps.value = []
   streamingText.value = ''
@@ -299,7 +305,7 @@ const processQuestion = async (text: string) => {
       role: m.role === 'user' ? 'user' : 'assistant', content: m.text
     }))
     extractMemories(recentMsgs).then(items => {
-      items.forEach(item => {
+      items.filter(item => item.confidence >= 0.85).forEach(item => {
         memoryStore.upsert(userId2, item.memory_type as any, item.key, item.value, item.confidence, 'ai_inferred')
       })
       if (items.length > 0) {
@@ -389,7 +395,7 @@ const executeGetHistory = async (userId: string, days: number): Promise<string> 
   for (let i = 1; i <= n; i++) {
     const date = new Date()
     date.setDate(date.getDate() - i)
-    const dateStr = date.toISOString().slice(0, 10)
+    const dateStr = date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0')
     const dayRecords = await recordsStore.loadRecords(userId, dateStr)
     const done = Object.values(dayRecords).filter((v: string) => v.startsWith('done_')).length
     const skip = Object.values(dayRecords).filter((v: string) => v.startsWith('skip_')).length
@@ -420,21 +426,106 @@ const executeGenerateReport = (): string => {
   return report
 }
 
+// === 工具执行入口（组件级，processQuestion 和 autoGreet 均可调用）===
+const executeTool = async (name: string, args: any): Promise<string> => {
+  const userId = userStore.user?.id
+  if (!userId) return '用户未登录'
+  if (name === 'get_today_status') {
+    const total = medications.value.reduce((s, m) => s + (m.times?.length || 1), 0)
+    const done = Object.values(records.value).filter(v => v.startsWith('done_')).length
+    let result = `今日${total}次药中已服${done}次\n`
+    medications.value.forEach(m => {
+      if (!m.times) return
+      m.times.forEach((t: string) => {
+        const time = normalizeTime(t); const label = getTimeLabel(time); const key = getMedKey(m.name, time)
+        const r = records.value[key]
+        const status = r?.startsWith('done_') ? '✅已服(' + r.replace('done_', '') + ')' : r?.startsWith('skip_') ? '⏭已跳过' : '⏳待服用'
+        result += `${m.name} ${label} ${status}\n`
+      })
+    })
+    return result
+  }
+  if (name === 'get_stock') {
+    let result = ''
+    medications.value.forEach(m => {
+      const daily = m.daily_usage || 1; const days = m.stock_count > 0 ? Math.floor(m.stock_count / daily) : 0
+      result += `${m.name}：${m.stock_count}片，${daily}片/天，可服${days}天${days <= 7 ? ' ⚠紧张' : ' ✅充足'}\n`
+    })
+    return result || '没有药品'
+  }
+  if (name === 'get_medications') {
+    let result = ''
+    medications.value.forEach(m => { result += `${m.name}（${m.dosage}），${m.condition}，治${m.disease}，时间：${m.times?.join('、') || '未设置'}\n` })
+    return result || '没有药品'
+  }
+  if (name === 'take_med') return await executeTakeMed(userId, args.med_name, args.time_slots || [])
+  if (name === 'skip_med') return await executeSkipMed(userId, args.med_name, args.time_slots || [], args.reason || '其他')
+  if (name === 'undo_med') return await executeUndoMed(userId, args.med_name, args.time_slots || [])
+  if (name === 'update_stock') return await executeUpdateStock(userId, args.med_name, args.quantity)
+  if (name === 'add_medication') return await executeAddMed(userId, args)
+  if (name === 'remove_medication') return await executeRemoveMed(userId, args.med_name)
+  if (name === 'search_knowledge') return await searchKnowledge(args.query, args.drug_names) || '知识库暂无相关内容，将根据通用医学知识回答。'
+  if (name === 'get_history') return await executeGetHistory(userId, args.days || 7)
+  if (name === 'update_memory') {
+    await memoryStore.upsert(userId, args.memory_type, args.key, args.value, 0.9, 'user_stated')
+    return `已记住：${args.value}`
+  }
+  if (name === 'generate_report') return executeGenerateReport()
+  return '未知工具: ' + name
+}
+
 // === 主动问候（不阻塞输入框）===
 const autoGreet = async () => {
   if (!userStore.user) return
-  const hour = new Date().getHours()
+  const now = new Date()
+  const hour = now.getHours()
   const timeWord = hour < 6 ? '深夜了' : hour < 12 ? '早上好' : hour < 14 ? '中午好' : hour < 18 ? '下午好' : '晚上好'
   isGreeting.value = true
   const realtimeData = buildRealtimeData(medications.value, records.value)
+
+  // 本地预分析：计算漏服和库存情况，给 AI 更有针对性的任务
+  const nowMinutes = hour * 60 + now.getMinutes()
+  const overdueMeds: string[] = []
+  medications.value.forEach(m => {
+    if (!m.times) return
+    m.times.forEach((t: string) => {
+      const time = normalizeTime(t)
+      const [th, tm] = time.split(':').map(Number)
+      const medMinutes = th * 60 + tm
+      const key = getMedKey(m.name, time)
+      // 过了应服时间 30 分钟以上且未打卡
+      if (nowMinutes > medMinutes + 30 && !records.value[key]) {
+        overdueMeds.push(`${m.name}（应服 ${time}）`)
+      }
+    })
+  })
+  const lowStock = medications.value.filter(m => {
+    const daily = m.daily_usage || 1
+    const days = m.stock_count > 0 ? Math.floor(m.stock_count / daily) : 0
+    return days > 0 && days <= 7
+  })
+
+  // 根据分析结果组装更有信息量的问候提示
+  let greetPrompt = `${timeWord}！`
+  if (overdueMeds.length > 0) {
+    greetPrompt += `以下药品已过应服时间但尚未打卡：${overdueMeds.join('、')}。请先关注这件事，根据具体药品给出是否还能补服的建议，语气温和不要责备。`
+  } else {
+    greetPrompt += `请查看今日用药进度，用温暖简短的方式汇报状态，并给出鼓励或下一步提醒。`
+  }
+  if (lowStock.length > 0) {
+    const stockDesc = lowStock.map(m => {
+      const days = Math.floor(m.stock_count / (m.daily_usage || 1))
+      return `${m.name}约剩${days}天`
+    }).join('、')
+    greetPrompt += `另外记得提醒用户补货：${stockDesc}。`
+  }
+
   const timeout = new Promise<never>((_, reject) =>
     setTimeout(() => reject(new Error('timeout')), 12000)
   )
   try {
     const result = await Promise.race([
-      runAgent(
-        `${timeWord}！请主动查看今日用药情况，用温暖简短的方式汇报状态，并给出提醒或鼓励。`,
-        userProfile.value, realtimeData, [], executeTool, undefined,
+      runAgent(greetPrompt, userProfile.value, realtimeData, [], executeTool, undefined,
         (chunk) => { streamingText.value += chunk }
       ),
       timeout
@@ -443,7 +534,6 @@ const autoGreet = async () => {
     addMsg(result.text, 'assistant')
   } catch {
     streamingText.value = ''
-    // 静默失败，用户可自己开口
   } finally {
     isGreeting.value = false
   }
@@ -553,7 +643,14 @@ const send = () => { if (inputText.value.trim() && !isThinking.value) { processQ
   background: #fff; border: 2rpx solid #e7eae8;
   border-radius: 8rpx 36rpx 36rpx 36rpx;
 }
-.bubble-ai-text { font-size: 26rpx; color: #0f1f1a; line-height: 1.6; white-space: pre-line; }
+.bubble-ai-text { font-size: 26rpx; color: #0f1f1a; line-height: 1.6; }
+:deep(.bubble-ai-text strong) { font-weight: 700; color: #0f1f1a; }
+:deep(.bubble-ai-text em) { font-style: italic; color: #4a7c6a; }
+:deep(.bubble-ai-text .md-tag) { color: #0b9d6a; font-weight: 600; }
+:deep(.bubble-ai-text .md-h) { display: block; font-weight: 700; font-size: 28rpx; margin: 8rpx 0 4rpx; color: #0f1f1a; }
+:deep(.bubble-ai-text .md-li) { display: block; padding-left: 24rpx; position: relative; margin: 4rpx 0; }
+:deep(.bubble-ai-text .md-li::before) { content: '•'; position: absolute; left: 6rpx; color: #0b9d6a; font-weight: 700; }
+:deep(.bubble-ai-text .md-num) { color: #0b9d6a; font-weight: 700; }
 
 /* 流式光标 */
 .stream-cursor {
