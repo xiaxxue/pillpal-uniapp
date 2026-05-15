@@ -2,10 +2,9 @@
   <view class="page" :class="{ 'elder-mode': elderMode }">
     <!-- 顶栏 -->
     <view class="chat-header">
-      <view v-if="ttsSupported" class="header-tts" @click="toggleTTS">
+      <view class="header-tts" @click="toggleTTS">
         <text class="tts-toggle-icon">{{ ttsEnabled ? '🔊' : '🔇' }}</text>
       </view>
-      <view v-else style="width: 72rpx;" />
       <view class="header-center">
         <text class="header-title">小派</text>
         <view class="header-status">
@@ -56,7 +55,7 @@
           </view>
           <view class="bubble-ai">
             <view class="bubble-ai-text" v-html="renderMarkdown(msg.text)" />
-            <view v-if="ttsSupported" class="bubble-speak-btn" @click.stop="speakMessage(msg)">
+            <view class="bubble-speak-btn" @click.stop="speakMessage(msg)">
               <text class="speak-btn-icon">{{ speakingMsgId === msg.id ? '⏹' : '🔊' }}</text>
               <text class="speak-btn-label">{{ speakingMsgId === msg.id ? '停止' : '朗读' }}</text>
             </view>
@@ -134,7 +133,7 @@ import CustomTabBar from '../../components/CustomTabBar.vue'
 import { runAgent, buildUserProfile, buildRealtimeData, manageHistory, extractMemories, searchKnowledge } from '../../utils/ai'
 import type { AgentStep } from '../../utils/ai'
 import { useMemoryStore } from '../../stores/memory'
-import { createSpeechRecognizer, isSpeechSupported, isTTSSupported, speak, stopSpeaking } from '../../utils/speech'
+import { createSpeechRecognizer, isSpeechSupported, speak, stopSpeaking } from '../../utils/speech'
 import type { SpeechState, SpeechRecognizer } from '../../utils/speech'
 
 const userStore = useUserStore()
@@ -573,13 +572,11 @@ const speechState = ref<SpeechState>('idle')
 let recognizer: SpeechRecognizer | null = null
 
 // === 语音输出 ===
-const ttsSupported = ref(false)
 const ttsEnabled = ref(false)
 const speakingMsgId = ref<string | null>(null)
 
 onShow(async () => {
   speechSupported.value = isSpeechSupported()
-  ttsSupported.value = isTTSSupported()
   ttsEnabled.value = uni.getStorageSync('pillpal_tts_enabled') === 'true'
 })
 
