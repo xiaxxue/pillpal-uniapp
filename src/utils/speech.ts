@@ -62,3 +62,43 @@ export function isSpeechSupported(): boolean {
     ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition)
   )
 }
+
+// ===== 语音输出（Text-to-Speech）=====
+
+export function isTTSSupported(): boolean {
+  return typeof window !== 'undefined' && 'speechSynthesis' in window
+}
+
+function cleanForSpeech(text: string): string {
+  return text
+    .replace(/<[^>]+>/g, '')        // 去除 HTML 标签
+    .replace(/\*\*/g, '')           // 去除加粗 **
+    .replace(/\*/g, '')             // 去除斜体 *
+    .replace(/^#{1,6}\s*/gm, '')    // 去除标题 #
+    .replace(/【|】/g, '')          // 去除方括号
+    .replace(/\n{2,}/g, '。')       // 多空行 → 句号停顿
+    .replace(/\n/g, '，')           // 单换行 → 逗号停顿
+    .trim()
+}
+
+export function speak(text: string, options?: {
+  onEnd?: () => void
+  onError?: (msg: string) => void
+}): void {
+  if (!isTTSSupported()) return
+  window.speechSynthesis.cancel()
+  const clean = cleanForSpeech(text)
+  if (!clean) return
+  const utterance = new SpeechSynthesisUtterance(clean)
+  utterance.lang = 'zh-CN'
+  utterance.rate = 0.9
+  utterance.pitch = 1.0
+  utterance.volume = 1.0
+  utterance.onend = () => options?.onEnd?.()
+  utterance.onerror = () => options?.onError?.('语音播报出现错误')
+  window.speechSynthesis.speak(utterance)
+}
+
+export function stopSpeaking(): void {
+  if (isTTSSupported()) window.speechSynthesis.cancel()
+}

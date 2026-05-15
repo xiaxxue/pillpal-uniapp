@@ -2,7 +2,10 @@
   <view class="page" :class="{ 'elder-mode': elderMode }">
     <!-- 顶栏 -->
     <view class="chat-header">
-      <view style="width: 72rpx;" />
+      <view v-if="ttsSupported" class="header-tts" @click="toggleTTS">
+        <text class="tts-toggle-icon">{{ ttsEnabled ? '🔊' : '🔇' }}</text>
+      </view>
+      <view v-else style="width: 72rpx;" />
       <view class="header-center">
         <text class="header-title">小派</text>
         <view class="header-status">
@@ -53,6 +56,10 @@
           </view>
           <view class="bubble-ai">
             <view class="bubble-ai-text" v-html="renderMarkdown(msg.text)" />
+            <view v-if="ttsSupported" class="bubble-speak-btn" @click.stop="speakMessage(msg)">
+              <text class="speak-btn-icon">{{ speakingMsgId === msg.id ? '⏹' : '🔊' }}</text>
+              <text class="speak-btn-label">{{ speakingMsgId === msg.id ? '停止' : '朗读' }}</text>
+            </view>
           </view>
         </view>
       </view>
@@ -127,7 +134,7 @@ import CustomTabBar from '../../components/CustomTabBar.vue'
 import { runAgent, buildUserProfile, buildRealtimeData, manageHistory, extractMemories, searchKnowledge } from '../../utils/ai'
 import type { AgentStep } from '../../utils/ai'
 import { useMemoryStore } from '../../stores/memory'
-import { createSpeechRecognizer, isSpeechSupported } from '../../utils/speech'
+import { createSpeechRecognizer, isSpeechSupported, isTTSSupported, speak, stopSpeaking } from '../../utils/speech'
 import type { SpeechState, SpeechRecognizer } from '../../utils/speech'
 
 const userStore = useUserStore()
@@ -238,7 +245,10 @@ const quickQuestions = computed(() => {
 })
 
 const clearChat = () => {
-  if (messages.value.length) { messages.value = []; historySummary.value = '' }
+  if (messages.value.length) {
+    messages.value = []; historySummary.value = ''
+    stopSpeaking(); speakingMsgId.value = null
+  }
 }
 
 const addMsg = (text: string, role: string) => {
@@ -297,6 +307,16 @@ const processQuestion = async (text: string) => {
   isThinking.value = false; thinkingSteps.value = []
   streamingText.value = ''
   addMsg(result.text, 'assistant')
+
+  // 语音播报（当 ttsEnabled 开启时自动朗读）
+  if (ttsEnabled.value && result.text) {
+    const latestMsg = messages.value[messages.value.length - 1]
+    speakingMsgId.value = latestMsg.id
+    speak(result.text, {
+      onEnd: () => { speakingMsgId.value = null },
+      onError: () => { speakingMsgId.value = null }
+    })
+  }
 
   // 后台异步提取本轮记忆（不影响体验）
   const userId2 = userStore.user?.id
@@ -532,6 +552,14 @@ const autoGreet = async () => {
     ])
     streamingText.value = ''
     addMsg(result.text, 'assistant')
+    if (ttsEnabled.value && result.text) {
+      const latestMsg = messages.value[messages.value.length - 1]
+      speakingMsgId.value = latestMsg.id
+      speak(result.text, {
+        onEnd: () => { speakingMsgId.value = null },
+        onError: () => { speakingMsgId.value = null }
+      })
+    }
   } catch {
     streamingText.value = ''
   } finally {
@@ -544,12 +572,38 @@ const speechSupported = ref(false)
 const speechState = ref<SpeechState>('idle')
 let recognizer: SpeechRecognizer | null = null
 
+// === 语音输出 ===
+const ttsSupported = ref(false)
+const ttsEnabled = ref(false)
+const speakingMsgId = ref<string | null>(null)
+
 onShow(async () => {
   speechSupported.value = isSpeechSupported()
+  ttsSupported.value = isTTSSupported()
+  ttsEnabled.value = uni.getStorageSync('pillpal_tts_enabled') === 'true'
 })
+
+const toggleTTS = () => {
+  ttsEnabled.value = !ttsEnabled.value
+  uni.setStorageSync('pillpal_tts_enabled', String(ttsEnabled.value))
+  if (!ttsEnabled.value) { stopSpeaking(); speakingMsgId.value = null }
+  uni.showToast({ title: ttsEnabled.value ? '语音播报已开启' : '语音播报已关闭', icon: 'none', duration: 1500 })
+}
+
+const speakMessage = (msg: { id: string; text: string }) => {
+  if (speakingMsgId.value === msg.id) {
+    stopSpeaking(); speakingMsgId.value = null; return
+  }
+  speakingMsgId.value = msg.id
+  speak(msg.text, {
+    onEnd: () => { speakingMsgId.value = null },
+    onError: () => { speakingMsgId.value = null }
+  })
+}
 
 const toggleSpeech = () => {
   if (isThinking.value || streamingText.value) return
+  stopSpeaking(); speakingMsgId.value = null
   if (speechState.value === 'listening') {
     recognizer?.stop()
     return
@@ -569,8 +623,8 @@ const toggleSpeech = () => {
   recognizer?.start()
 }
 
-const ask = (text: string) => processQuestion(text)
-const send = () => { if (inputText.value.trim() && !isThinking.value) { processQuestion(inputText.value.trim()); inputText.value = '' } }
+const ask = (text: string) => { stopSpeaking(); speakingMsgId.value = null; processQuestion(text) }
+const send = () => { if (inputText.value.trim() && !isThinking.value) { stopSpeaking(); speakingMsgId.value = null; processQuestion(inputText.value.trim()); inputText.value = '' } }
 </script>
 
 <style lang="scss" scoped>
@@ -588,6 +642,15 @@ const send = () => { if (inputText.value.trim() && !isThinking.value) { processQ
 .status-text { font-size: 20rpx; color: #0b9d6a; font-weight: 500; }
 .header-clear { width: 72rpx; height: 72rpx; display: flex; align-items: center; justify-content: center; }
 .clear-icon { font-size: 32rpx; }
+.header-tts { width: 72rpx; height: 72rpx; display: flex; align-items: center; justify-content: center; }
+.tts-toggle-icon { font-size: 36rpx; }
+
+.bubble-speak-btn {
+  margin-top: 16rpx; display: flex; align-items: center; gap: 8rpx;
+  padding-top: 12rpx; border-top: 1rpx solid #f0f2f1;
+}
+.speak-btn-icon { font-size: 24rpx; opacity: 0.55; }
+.speak-btn-label { font-size: 20rpx; color: #9aa39e; }
 
 /* 聊天区 */
 .chat-scroll { flex: 1; padding: 24rpx 32rpx 16rpx; background: linear-gradient(180deg, #e7f6ef 0%, #f6f8f7 24%); }
