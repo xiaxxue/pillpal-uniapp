@@ -126,17 +126,18 @@ function synthesizeEdgeTTS(text: string): Promise<Blob> {
   })
 }
 
-// 音频队列播放器：按顺序播放多段音频
+// 音频队列播放器：按顺序播放，Edge TTS 失败时自动退回浏览器语音
 export class TTSPlayer {
-  private queue: Promise<Blob>[] = []
+  private queue: { text: string; audio: Promise<Blob> }[] = []
   private processing = false
   private currentAudio: HTMLAudioElement | null = null
   private _stopped = false
   onStateChange?: (speaking: boolean) => void
+  onError?: (msg: string) => void
 
   enqueue(text: string) {
     if (this._stopped) return
-    this.queue.push(synthesizeEdgeTTS(text))
+    this.queue.push({ text, audio: synthesizeEdgeTTS(text) })
     if (!this.processing) this.processQueue()
   }
 
@@ -144,10 +145,15 @@ export class TTSPlayer {
     this.processing = true
     this.onStateChange?.(true)
     while (this.queue.length > 0 && !this._stopped) {
+      const item = this.queue.shift()!
       try {
-        const blob = await this.queue.shift()!
+        const blob = await item.audio
         if (blob.size > 0 && !this._stopped) await this.playBlob(blob)
-      } catch (e) { console.warn('TTS error:', e) }
+      } catch (e) {
+        console.warn('Edge TTS failed:', e)
+        this.onError?.('Edge TTS 暂不可用，使用备用语音')
+        if (!this._stopped) await this.fallbackSpeak(item.text)
+      }
     }
     this.processing = false
     this.onStateChange?.(false)
@@ -165,6 +171,21 @@ export class TTSPlayer {
     })
   }
 
+  // 浏览器 SpeechSynthesis 兜底
+  private fallbackSpeak(text: string): Promise<void> {
+    return new Promise((resolve) => {
+      if (typeof window === 'undefined' || !('speechSynthesis' in window)) { resolve(); return }
+      const clean = cleanForTTS(text)
+      if (!clean) { resolve(); return }
+      window.speechSynthesis.cancel()
+      const u = new SpeechSynthesisUtterance(clean)
+      u.lang = 'zh-CN'; u.rate = 0.9
+      u.onend = () => resolve()
+      u.onerror = () => resolve()
+      window.speechSynthesis.speak(u)
+    })
+  }
+
   async speak(text: string) {
     this.stop()
     this._stopped = false
@@ -175,6 +196,7 @@ export class TTSPlayer {
     this._stopped = true
     this.queue = []
     if (this.currentAudio) { this.currentAudio.pause(); this.currentAudio = null }
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) window.speechSynthesis.cancel()
     this.processing = false
     this.onStateChange?.(false)
   }

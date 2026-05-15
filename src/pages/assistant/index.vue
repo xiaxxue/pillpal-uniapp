@@ -576,6 +576,7 @@ const ttsPlayer = new TTSPlayer()
 const ttsEnabled = ref(uni.getStorageSync('pillpal_tts_enabled') === 'true')
 const speakingMsgId = ref<string | null>(null)
 ttsPlayer.onStateChange = (speaking) => { if (!speaking) speakingMsgId.value = null }
+ttsPlayer.onError = (msg) => uni.showToast({ title: msg, icon: 'none', duration: 2000 })
 
 const toggleTTS = () => {
   ttsEnabled.value = !ttsEnabled.value
