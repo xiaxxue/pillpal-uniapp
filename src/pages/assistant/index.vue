@@ -95,7 +95,7 @@
 
     <!-- 输入栏 -->
     <view class="input-bar">
-      <view v-if="speechSupported && elderMode"
+      <view v-if="elderMode"
         class="mic-btn" :class="{ listening: speechState === 'listening' }"
         @click="toggleSpeech">
         <text class="mic-icon">{{ speechState === 'listening' ? '⏹' : '🎤' }}</text>
@@ -104,7 +104,7 @@
         :placeholder="speechState === 'listening' ? '正在聆听…' : '问问关于吃药的问题…'"
         :disabled="isThinking"
         confirm-type="send" @confirm="send" />
-      <view v-if="speechSupported && !elderMode"
+      <view v-if="!elderMode"
         class="mic-btn-sm" :class="{ listening: speechState === 'listening' }"
         @click="toggleSpeech">
         <text>{{ speechState === 'listening' ? '⏹' : '🎤' }}</text>
@@ -567,18 +567,12 @@ const autoGreet = async () => {
 }
 
 // === 语音输入 ===
-const speechSupported = ref(false)
 const speechState = ref<SpeechState>('idle')
 let recognizer: SpeechRecognizer | null = null
 
 // === 语音输出 ===
-const ttsEnabled = ref(false)
+const ttsEnabled = ref(uni.getStorageSync('pillpal_tts_enabled') === 'true')
 const speakingMsgId = ref<string | null>(null)
-
-onShow(async () => {
-  speechSupported.value = isSpeechSupported()
-  ttsEnabled.value = uni.getStorageSync('pillpal_tts_enabled') === 'true'
-})
 
 const toggleTTS = () => {
   ttsEnabled.value = !ttsEnabled.value
@@ -603,6 +597,10 @@ const toggleSpeech = () => {
   stopSpeaking(); speakingMsgId.value = null
   if (speechState.value === 'listening') {
     recognizer?.stop()
+    return
+  }
+  if (!isSpeechSupported()) {
+    uni.showToast({ title: '当前浏览器不支持语音输入，请使用 Chrome', icon: 'none' })
     return
   }
   recognizer = createSpeechRecognizer({
