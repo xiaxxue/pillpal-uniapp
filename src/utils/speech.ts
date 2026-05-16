@@ -1,5 +1,7 @@
-// 语音输入工具（Web Speech API）
-// 仅在支持的浏览器下可用（Chrome / Safari iOS 16.4+）
+// 语音输入（火山引擎 ASR）+ 语音输出（火山引擎 TTS）
+// ASR：WebSocket 二进制协议，录音后一次性识别
+// TTS：REST API，返回 base64 编码的 MP3 音频
+// 两者均不可用时自动退回浏览器原生 API
 
 export type SpeechState = 'idle' | 'listening' | 'processing' | 'unsupported'
 
@@ -9,7 +11,193 @@ export interface SpeechRecognizer {
   destroy: () => void
 }
 
-export function createSpeechRecognizer(options: {
+// ===== 火山引擎公共配置 =====
+const VOLCENGINE_APP_ID = 'heKWxNrHrz'
+const VOLCENGINE_TOKEN = '0e4c72ab-d209-4d3d-9a74-96e9629c4779'
+
+// ===== gzip 压缩 / 解压（浏览器原生 CompressionStream）=====
+async function gzipCompress(data: Uint8Array): Promise<Uint8Array> {
+  const cs = new CompressionStream('gzip')
+  const writer = cs.writable.getWriter()
+  writer.write(data)
+  writer.close()
+  return new Uint8Array(await new Response(cs.readable).arrayBuffer())
+}
+
+async function gzipDecompress(data: Uint8Array): Promise<Uint8Array> {
+  const ds = new DecompressionStream('gzip')
+  const writer = ds.writable.getWriter()
+  writer.write(data)
+  writer.close()
+  return new Uint8Array(await new Response(ds.readable).arrayBuffer())
+}
+
+// ===== 语音识别（火山引擎 ASR）=====
+// 流程：MediaRecorder 录音 → 转 16kHz WAV → WebSocket 发给火山引擎 → 返回文字
+
+// 构造 ASR WebSocket 二进制帧
+function buildASRFrame(msgType: number, flags: number, serial: number, compress: number, payload: Uint8Array): ArrayBuffer {
+  const frame = new Uint8Array(4 + 4 + payload.length)
+  frame[0] = 0x11  // protocol_version=1, header_size=1（4字节）
+  frame[1] = (msgType << 4) | flags
+  frame[2] = (serial << 4) | compress
+  frame[3] = 0x00
+  new DataView(frame.buffer).setUint32(4, payload.length)
+  frame.set(payload, 8)
+  return frame.buffer
+}
+
+// 录音 Blob → 16kHz 单声道 WAV（用 OfflineAudioContext 重采样）
+async function toWav16k(audioBlob: Blob): Promise<ArrayBuffer> {
+  const audioCtx = new AudioContext()
+  const decoded = await audioCtx.decodeAudioData(await audioBlob.arrayBuffer())
+  audioCtx.close()
+
+  const targetRate = 16000
+  const offlineCtx = new OfflineAudioContext(1, decoded.duration * targetRate, targetRate)
+  const src = offlineCtx.createBufferSource()
+  src.buffer = decoded
+  src.connect(offlineCtx.destination)
+  src.start()
+  const rendered = await offlineCtx.startRendering()
+  const pcm = rendered.getChannelData(0)
+
+  // 编码 WAV 文件
+  const buf = new ArrayBuffer(44 + pcm.length * 2)
+  const v = new DataView(buf)
+  const w = (off: number, s: string) => { for (let i = 0; i < s.length; i++) v.setUint8(off + i, s.charCodeAt(i)) }
+  w(0, 'RIFF'); v.setUint32(4, 36 + pcm.length * 2, true)
+  w(8, 'WAVE'); w(12, 'fmt ')
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true)
+  v.setUint32(24, targetRate, true); v.setUint32(28, targetRate * 2, true)
+  v.setUint16(32, 2, true); v.setUint16(34, 16, true)
+  w(36, 'data'); v.setUint32(40, pcm.length * 2, true)
+  let off = 44
+  for (let i = 0; i < pcm.length; i++) {
+    const s = Math.max(-1, Math.min(1, pcm[i]))
+    v.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7FFF, true)
+    off += 2
+  }
+  return buf
+}
+
+// 发送 WAV 音频到火山引擎 ASR，返回识别文字
+function recognizeWithVolcengine(wavBuffer: ArrayBuffer): Promise<string> {
+  return new Promise(async (resolve, reject) => {
+    const ws = new WebSocket(
+      `wss://openspeech.bytedance.com/api/v2/asr?appid=${VOLCENGINE_APP_ID}&token=${VOLCENGINE_TOKEN}&cluster=volcengine_input_common`
+    )
+    ws.binaryType = 'arraybuffer'
+    const timer = setTimeout(() => { try { ws.close() } catch {} reject(new Error('ASR 超时')) }, 15000)
+
+    ws.onopen = async () => {
+      try {
+        // 1) 发送配置帧（JSON gzip）
+        const config = {
+          app: { appid: VOLCENGINE_APP_ID, token: VOLCENGINE_TOKEN, cluster: 'volcengine_input_common' },
+          user: { uid: 'pillpal_user' },
+          audio: { format: 'wav', rate: 16000, bits: 16, channel: 1, language: 'zh-CN' },
+          request: {
+            reqid: crypto.randomUUID(),
+            workflow: 'audio_in,resample,partition,vad,fe,decode,itn,punc',
+            sequence: 1, nbest: 1, show_utterances: true
+          }
+        }
+        const configGz = await gzipCompress(new TextEncoder().encode(JSON.stringify(config)))
+        ws.send(buildASRFrame(0x01, 0x00, 0x01, 0x01, configGz))
+
+        // 2) 发送音频帧（最后一帧，flags=0x02）
+        const audioGz = await gzipCompress(new Uint8Array(wavBuffer))
+        ws.send(buildASRFrame(0x02, 0x02, 0x00, 0x01, audioGz))
+      } catch (e) {
+        clearTimeout(timer); reject(e)
+      }
+    }
+
+    ws.onmessage = async (event) => {
+      try {
+        const buf = new Uint8Array(event.data as ArrayBuffer)
+        const msgType = (buf[1] >> 4) & 0x0F
+        const compress = buf[2] & 0x0F
+        const payloadLen = new DataView(buf.buffer).getUint32(4)
+        const payload = buf.slice(8, 8 + payloadLen)
+        const jsonBytes = compress === 1 ? await gzipDecompress(payload) : payload
+        const resp = JSON.parse(new TextDecoder().decode(jsonBytes))
+
+        if (msgType === 0x0F || (resp.code && resp.code !== 1000)) {
+          clearTimeout(timer); try { ws.close() } catch {}
+          reject(new Error(resp.message || 'ASR 识别失败'))
+          return
+        }
+        // 完整服务端响应（msgType=0x09）
+        if (msgType === 0x09) {
+          clearTimeout(timer); try { ws.close() } catch {}
+          resolve(resp.result?.[0]?.text || '')
+        }
+      } catch (e) {
+        clearTimeout(timer); try { ws.close() } catch {}; reject(e)
+      }
+    }
+
+    ws.onerror = () => { clearTimeout(timer); reject(new Error('ASR WebSocket 连接失败')) }
+  })
+}
+
+// 火山引擎 ASR 语音识别器（MediaRecorder 录音 → 转码 → 识别）
+function createVolcengineRecognizer(options: {
+  onResult: (text: string, isFinal: boolean) => void
+  onStateChange: (state: SpeechState) => void
+  onError?: (msg: string) => void
+}): SpeechRecognizer {
+  let recorder: MediaRecorder | null = null
+  let stream: MediaStream | null = null
+  let chunks: Blob[] = []
+
+  const doStart = async () => {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : ''
+      recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream)
+      chunks = []
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data) }
+      recorder.onstop = async () => {
+        options.onStateChange('processing')
+        try {
+          const blob = new Blob(chunks, { type: recorder?.mimeType || 'audio/webm' })
+          const wav = await toWav16k(blob)
+          const text = await recognizeWithVolcengine(wav)
+          if (text) {
+            options.onResult(text, true)
+          } else {
+            options.onError?.('没有听到声音，请重试')
+          }
+        } catch (e: any) {
+          console.warn('火山引擎 ASR failed:', e)
+          options.onError?.('语音识别失败，请重试')
+        }
+        options.onStateChange('idle')
+        stream?.getTracks().forEach(t => t.stop())
+      }
+      recorder.start()
+      options.onStateChange('listening')
+    } catch (e: any) {
+      options.onError?.(e.name === 'NotAllowedError' ? '请在浏览器设置中允许麦克风权限' : '无法启动语音录制')
+      options.onStateChange('idle')
+    }
+  }
+
+  return {
+    start() { doStart().catch(() => {}) },
+    stop() { if (recorder?.state === 'recording') recorder.stop() },
+    destroy() {
+      try { if (recorder?.state === 'recording') recorder.stop() } catch {}
+      stream?.getTracks().forEach(t => t.stop())
+    }
+  }
+}
+
+// Web Speech API 语音识别器（兜底方案）
+function createWebSpeechRecognizer(options: {
   onResult: (text: string, isFinal: boolean) => void
   onStateChange: (state: SpeechState) => void
   onError?: (msg: string) => void
@@ -19,13 +207,11 @@ export function createSpeechRecognizer(options: {
     options.onStateChange('unsupported')
     return null
   }
-
   const recognition = new SR()
   recognition.lang = 'zh-CN'
   recognition.continuous = false
   recognition.interimResults = true
   recognition.maxAlternatives = 1
-
   recognition.onstart = () => options.onStateChange('listening')
   recognition.onend = () => options.onStateChange('idle')
   recognition.onerror = (e: any) => {
@@ -37,42 +223,38 @@ export function createSpeechRecognizer(options: {
   }
   recognition.onresult = (e: any) => {
     const result = e.results[e.results.length - 1]
-    const text = result[0].transcript
-    const isFinal = result.isFinal
-    options.onResult(text, isFinal)
-    if (isFinal) options.onStateChange('processing')
+    options.onResult(result[0].transcript, result.isFinal)
+    if (result.isFinal) options.onStateChange('processing')
   }
-
   return {
-    start() {
-      try { recognition.start() } catch {}
-    },
-    stop() {
-      try { recognition.stop() } catch {}
-    },
-    destroy() {
-      try { recognition.abort() } catch {}
-    }
+    start() { try { recognition.start() } catch {} },
+    stop() { try { recognition.stop() } catch {} },
+    destroy() { try { recognition.abort() } catch {} }
   }
+}
+
+// 创建语音识别器：优先火山引擎 ASR，不支持时退回 Web Speech API
+export function createSpeechRecognizer(options: {
+  onResult: (text: string, isFinal: boolean) => void
+  onStateChange: (state: SpeechState) => void
+  onError?: (msg: string) => void
+}): SpeechRecognizer | null {
+  if (typeof MediaRecorder !== 'undefined' && typeof CompressionStream !== 'undefined') {
+    return createVolcengineRecognizer(options)
+  }
+  return createWebSpeechRecognizer(options)
 }
 
 export function isSpeechSupported(): boolean {
-  return !!(
-    typeof window !== 'undefined' &&
-    ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition)
-  )
+  if (typeof window === 'undefined') return false
+  if (typeof MediaRecorder !== 'undefined' && typeof CompressionStream !== 'undefined') return true
+  return !!((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition)
 }
 
-// ===== 语音输出（Edge TTS — 微软神经语音）=====
-// 使用 Edge 浏览器内置的 TTS 服务，免费、高质量中文语音
-// 通过 WebSocket 直连微软 TTS 服务，返回 MP3 音频
+// ===== 语音输出（火山引擎 TTS — 灿灿 V2 神经语音）=====
+// REST API 调用，返回 base64 编码的 MP3 音频
 
-const EDGE_TTS_TOKEN = '6A5AA1D4EAFF4E9FB37E23D68491D6F4'
-const EDGE_TTS_VOICE = 'zh-CN-XiaoxiaoNeural'
-
-function escapeXml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-}
+const VOLCENGINE_VOICE = 'BV700_V2_streaming' // 灿灿 V2，自然女声
 
 function cleanForTTS(text: string): string {
   return text
@@ -81,52 +263,36 @@ function cleanForTTS(text: string): string {
     .trim()
 }
 
-function synthesizeEdgeTTS(text: string): Promise<Blob> {
+function synthesizeTTS(text: string): Promise<Blob> {
   const clean = cleanForTTS(text)
   if (!clean) return Promise.resolve(new Blob())
 
-  const id = crypto.randomUUID().replace(/-/g, '')
-  const url = `wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=${EDGE_TTS_TOKEN}&ConnectionId=${id}`
+  const reqid = crypto.randomUUID()
 
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(url)
-    const chunks: Uint8Array[] = []
-    const timer = setTimeout(() => { try { ws.close() } catch {} reject(new Error('TTS timeout')) }, 15000)
-
-    ws.onopen = () => {
-      ws.send(
-        `Content-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n` +
-        `{"context":{"synthesis":{"audio":{"metadataoptions":{"sentenceBoundaryEnabled":"false","wordBoundaryEnabled":"false"},"outputFormat":"audio-24khz-48kbitrate-mono-mp3"}}}}`
-      )
-      const ssml = `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='zh-CN'><voice name='${EDGE_TTS_VOICE}'>${escapeXml(clean)}</voice></speak>`
-      ws.send(`X-RequestId:${id}\r\nContent-Type:application/ssml+xml\r\nPath:ssml\r\n\r\n${ssml}`)
-    }
-
-    ws.onmessage = async (event: MessageEvent) => {
-      if (typeof event.data === 'string') {
-        if (event.data.includes('Path:turn.end')) {
-          clearTimeout(timer)
-          try { ws.close() } catch {}
-          resolve(new Blob(chunks, { type: 'audio/mpeg' }))
-        }
-      } else {
-        let buf: ArrayBuffer
-        if (event.data instanceof Blob) buf = await event.data.arrayBuffer()
-        else if (event.data instanceof ArrayBuffer) buf = event.data
-        else return
-        if (buf.byteLength < 2) return
-        const headerLen = new DataView(buf).getUint16(0)
-        if (buf.byteLength > 2 + headerLen) {
-          chunks.push(new Uint8Array(buf, 2 + headerLen))
-        }
-      }
-    }
-
-    ws.onerror = () => { clearTimeout(timer); reject(new Error('TTS WebSocket error')) }
+  return fetch('https://openspeech.bytedance.com/api/v1/tts', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer;${VOLCENGINE_TOKEN}`
+    },
+    body: JSON.stringify({
+      app: { appid: VOLCENGINE_APP_ID, token: VOLCENGINE_TOKEN, cluster: 'volcano_tts' },
+      user: { uid: 'pillpal_user' },
+      audio: { voice_type: VOLCENGINE_VOICE, encoding: 'mp3', speed_ratio: 1.0, volume_ratio: 1.0, pitch_ratio: 1.0 },
+      request: { reqid, text: clean, text_type: 'plain', operation: 'query' }
+    })
+  })
+  .then(res => res.json())
+  .then(data => {
+    if (data.code !== 3000) throw new Error(data.message || 'TTS 合成失败')
+    const binary = atob(data.data)
+    const bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+    return new Blob([bytes], { type: 'audio/mpeg' })
   })
 }
 
-// 音频队列播放器：按顺序播放，Edge TTS 失败时自动退回浏览器语音
+// 音频队列播放器：按顺序播放，火山引擎 TTS 失败时自动退回浏览器语音
 export class TTSPlayer {
   private queue: { text: string; audio: Promise<Blob> }[] = []
   private processing = false
@@ -137,7 +303,7 @@ export class TTSPlayer {
 
   enqueue(text: string) {
     if (this._stopped) return
-    this.queue.push({ text, audio: synthesizeEdgeTTS(text) })
+    this.queue.push({ text, audio: synthesizeTTS(text) })
     if (!this.processing) this.processQueue()
   }
 
@@ -150,8 +316,8 @@ export class TTSPlayer {
         const blob = await item.audio
         if (blob.size > 0 && !this._stopped) await this.playBlob(blob)
       } catch (e) {
-        console.warn('Edge TTS failed:', e)
-        this.onError?.('Edge TTS 暂不可用，使用备用语音')
+        console.warn('火山引擎 TTS failed:', e)
+        this.onError?.('语音合成暂不可用，使用备用语音')
         if (!this._stopped) await this.fallbackSpeak(item.text)
       }
     }
@@ -171,7 +337,6 @@ export class TTSPlayer {
     })
   }
 
-  // 浏览器 SpeechSynthesis 兜底
   private fallbackSpeak(text: string): Promise<void> {
     return new Promise((resolve) => {
       if (typeof window === 'undefined' || !('speechSynthesis' in window)) { resolve(); return }

@@ -101,7 +101,7 @@
         <text class="mic-icon">{{ speechState === 'listening' ? '⏹' : '🎤' }}</text>
       </view>
       <input class="chat-input" :value="inputText" @input="inputText = $event.detail.value"
-        :placeholder="speechState === 'listening' ? '正在聆听…' : '问问关于吃药的问题…'"
+        :placeholder="speechState === 'listening' ? '正在聆听…' : speechState === 'processing' ? '正在识别…' : '问问关于吃药的问题…'"
         :disabled="isThinking"
         confirm-type="send" @confirm="send" />
       <view v-if="!elderMode"
@@ -571,7 +571,7 @@ const autoGreet = async () => {
 const speechState = ref<SpeechState>('idle')
 let recognizer: SpeechRecognizer | null = null
 
-// === 语音输出（Edge TTS）===
+// === 语音输出（火山引擎 TTS）===
 const ttsPlayer = new TTSPlayer()
 const ttsEnabled = ref(uni.getStorageSync('pillpal_tts_enabled') === 'true')
 const speakingMsgId = ref<string | null>(null)
