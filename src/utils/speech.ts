@@ -251,10 +251,10 @@ export function isSpeechSupported(): boolean {
   return !!((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition)
 }
 
-// ===== 语音输出（火山引擎 TTS — 灿灿 V2 神经语音）=====
-// REST API 调用，返回 base64 编码的 MP3 音频
+// ===== 语音输出（火山引擎 TTS — 通过 Supabase Edge Function 代理）=====
+// 前端不能直接调火山引擎（CORS 限制），通过 Supabase 服务器端中转
 
-const VOLCENGINE_VOICE = 'BV700_V2_streaming' // 灿灿 V2，自然女声
+const SUPABASE_TTS_URL = 'https://tjipfsyiqlbmaehabmvp.supabase.co/functions/v1/tts'
 
 function cleanForTTS(text: string): string {
   return text
@@ -267,25 +267,15 @@ function synthesizeTTS(text: string): Promise<Blob> {
   const clean = cleanForTTS(text)
   if (!clean) return Promise.resolve(new Blob())
 
-  const reqid = crypto.randomUUID()
-
-  return fetch('https://openspeech.bytedance.com/api/v1/tts', {
+  return fetch(SUPABASE_TTS_URL, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer;${VOLCENGINE_TOKEN}`
-    },
-    body: JSON.stringify({
-      app: { appid: VOLCENGINE_APP_ID, token: VOLCENGINE_TOKEN, cluster: 'volcano_tts' },
-      user: { uid: 'pillpal_user' },
-      audio: { voice_type: VOLCENGINE_VOICE, encoding: 'mp3', speed_ratio: 1.0, volume_ratio: 1.0, pitch_ratio: 1.0 },
-      request: { reqid, text: clean, text_type: 'plain', operation: 'query' }
-    })
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: clean })
   })
   .then(res => res.json())
   .then(data => {
-    if (data.code !== 3000) throw new Error(data.message || 'TTS 合成失败')
-    const binary = atob(data.data)
+    if (data.error) throw new Error(data.error)
+    const binary = atob(data.audio)
     const bytes = new Uint8Array(binary.length)
     for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
     return new Blob([bytes], { type: 'audio/mpeg' })
