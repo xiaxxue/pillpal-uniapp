@@ -121,6 +121,7 @@
 <script setup lang="ts">
 // 模块级变量：跨组件重建保持状态，防止每次切标签重复问候
 let _sessionGreeted = false
+let _memoryExtracted = false  // 每次对话只提取一次记忆，避免重复调 DeepSeek
 
 import { ref, computed, nextTick } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
@@ -130,7 +131,7 @@ import { useRecordsStore } from '../../stores/records'
 import { normalizeTime, getTimeLabel, getMedKey } from '../../utils/date'
 import XiaopaiAvatar from '../../components/Xiaopai.vue'
 import CustomTabBar from '../../components/CustomTabBar.vue'
-import { runAgent, buildUserProfile, buildRealtimeData, manageHistory, extractMemories, searchKnowledge } from '../../utils/ai'
+import { runAgent, buildUserProfile, buildRealtimeData, manageHistory, extractMemories, searchKnowledge, simpleStreamChat } from '../../utils/ai'
 import type { AgentStep } from '../../utils/ai'
 import { useMemoryStore } from '../../stores/memory'
 import { createSpeechRecognizer, isSpeechSupported, TTSPlayer, SentenceDetector } from '../../utils/speech'
@@ -247,6 +248,7 @@ const clearChat = () => {
   if (messages.value.length) {
     messages.value = []; historySummary.value = ''
     ttsPlayer.stop(); speakingMsgId.value = null
+    _memoryExtracted = false
   }
 }
 
@@ -317,9 +319,10 @@ const processQuestion = async (text: string) => {
     speakingMsgId.value = messages.value[messages.value.length - 1].id
   }
 
-  // 后台异步提取本轮记忆（不影响体验）
+  // 后台异步提取本轮记忆（每次对话只提取一次，避免重复消耗 DeepSeek token）
   const userId2 = userStore.user?.id
-  if (userId2 && messages.value.length >= 4) {
+  if (userId2 && messages.value.length >= 6 && !_memoryExtracted) {
+    _memoryExtracted = true
     const recentMsgs = messages.value.slice(-6).map(m => ({
       role: m.role === 'user' ? 'user' : 'assistant', content: m.text
     }))
@@ -547,16 +550,18 @@ const autoGreet = async () => {
     ttsPlayer.reset()
     greetDetector = new SentenceDetector((sentence) => ttsPlayer.enqueue(sentence))
   }
+  // 用轻量对话代替完整 Agent，省掉工具定义和 tool call 往返（省约 60% token）
+  const sysPrompt = `你是"小派"，PillPal 用药管家。温暖亲切，适当用 emoji，2-3 句话。\n${userProfile.value}\n${realtimeData}`
   try {
-    const result = await Promise.race([
-      runAgent(greetPrompt, userProfile.value, realtimeData, [], executeTool, undefined,
-        (chunk) => { streamingText.value += chunk; greetDetector?.feed(chunk) }
-      ),
+    const text = await Promise.race([
+      simpleStreamChat(sysPrompt, greetPrompt, (chunk) => {
+        streamingText.value += chunk; greetDetector?.feed(chunk)
+      }, 200),
       timeout
     ])
     greetDetector?.flush()
     streamingText.value = ''
-    addMsg(result.text, 'assistant')
+    addMsg(text || `${timeWord}！准备好管理今天的用药了吗 💊`, 'assistant')
     if (ttsEnabled.value && ttsPlayer.isSpeaking) {
       speakingMsgId.value = messages.value[messages.value.length - 1].id
     }

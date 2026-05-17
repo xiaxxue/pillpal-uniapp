@@ -645,6 +645,63 @@ ${realtimeData}
   return { text: '这个问题比较复杂，我已经尽力分析了。如果还有问题请再问我 😊', steps }
 }
 
+// ====== 轻量流式对话（无工具，省 token）======
+// 用于问候等不需要调工具的场景，比 runAgent 省约 60% token
+export async function simpleStreamChat(
+  systemPrompt: string,
+  userMessage: string,
+  onChunk?: (chunk: string) => void,
+  maxTokens = 200
+): Promise<string> {
+  const response = await fetch(DEEPSEEK_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + DEEPSEEK_API_KEY },
+    body: JSON.stringify({
+      model: 'deepseek-chat',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userMessage }
+      ],
+      temperature: 0.7,
+      max_tokens: maxTokens,
+      stream: true
+    })
+  })
+
+  if (!response.ok) {
+    const errData = await response.json().catch(() => ({}))
+    if (response.status === 402) throw new Error('API_BALANCE')
+    throw new Error(errData?.error?.message || `HTTP ${response.status}`)
+  }
+
+  let fullContent = ''
+  if (!response.body) {
+    const data = await response.json()
+    fullContent = data.choices?.[0]?.message?.content || ''
+    onChunk?.(fullContent)
+    return fullContent
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      for (const line of decoder.decode(value, { stream: true }).split('\n')) {
+        if (!line.startsWith('data: ')) continue
+        const payload = line.slice(6).trim()
+        if (payload === '[DONE]') continue
+        try {
+          const content = JSON.parse(payload).choices?.[0]?.delta?.content
+          if (content) { fullContent += content; onChunk?.(content) }
+        } catch {}
+      }
+    }
+  } finally { reader.releaseLock() }
+  return fullContent
+}
+
 // ====== 知识库检索 ======
 export async function searchKnowledge(query: string, drugNames?: string[]): Promise<string> {
   try {

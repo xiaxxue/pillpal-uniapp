@@ -284,7 +284,7 @@ function synthesizeTTS(text: string): Promise<Blob> {
 
 // 音频队列播放器：按顺序播放，火山引擎 TTS 失败时自动退回浏览器语音
 export class TTSPlayer {
-  private queue: { text: string; audio: Promise<Blob> }[] = []
+  private queue: string[] = []
   private processing = false
   private currentAudio: HTMLAudioElement | null = null
   private _stopped = false
@@ -294,7 +294,7 @@ export class TTSPlayer {
 
   enqueue(text: string) {
     if (this._stopped) return
-    this.queue.push({ text, audio: synthesizeTTS(text) })
+    this.queue.push(text)
     if (!this.processing) this.processQueue()
   }
 
@@ -303,14 +303,14 @@ export class TTSPlayer {
     this.processing = true
     this.onStateChange?.(true)
     while (this.queue.length > 0 && !this._stopped && this._runId === runId) {
-      const item = this.queue.shift()!
+      const text = this.queue.shift()!
       try {
-        const blob = await item.audio
+        const blob = await synthesizeTTS(text)
         if (blob.size > 0 && !this._stopped && this._runId === runId) await this.playBlob(blob)
       } catch (e) {
         console.warn('火山引擎 TTS failed:', e)
         this.onError?.('语音合成暂不可用，使用备用语音')
-        if (!this._stopped && this._runId === runId) await this.fallbackSpeak(item.text)
+        if (!this._stopped && this._runId === runId) await this.fallbackSpeak(text)
       }
     }
     if (this._runId === runId) {
