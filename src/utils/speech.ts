@@ -12,8 +12,8 @@ export interface SpeechRecognizer {
 }
 
 // ===== 火山引擎公共配置 =====
-const VOLCENGINE_APP_ID = 'heKWxNrHrz'
-const VOLCENGINE_TOKEN = '0e4c72ab-d209-4d3d-9a74-96e9629c4779'
+const VOLCENGINE_APP_ID = '9798961393'
+const VOLCENGINE_TOKEN = '_8PCxanbYgnsxogWnjS3v72kzEmXRYzU'
 
 // ===== gzip 压缩 / 解压（浏览器原生 CompressionStream）=====
 async function gzipCompress(data: Uint8Array): Promise<Uint8Array> {

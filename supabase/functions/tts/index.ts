@@ -2,8 +2,8 @@
 // 部署命令: supabase functions deploy tts
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 
-const VOLCENGINE_APP_ID = Deno.env.get('VOLCENGINE_APP_ID') ?? 'heKWxNrHrz'
-const VOLCENGINE_TOKEN = Deno.env.get('VOLCENGINE_TOKEN') ?? '0e4c72ab-d209-4d3d-9a74-96e9629c4779'
+const VOLCENGINE_APP_ID = Deno.env.get('VOLCENGINE_APP_ID') ?? '9798961393'
+const VOLCENGINE_TOKEN = Deno.env.get('VOLCENGINE_TOKEN') ?? '_8PCxanbYgnsxogWnjS3v72kzEmXRYzU'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
