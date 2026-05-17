@@ -288,6 +288,7 @@ export class TTSPlayer {
   private processing = false
   private currentAudio: HTMLAudioElement | null = null
   private _stopped = false
+  private _runId = 0
   onStateChange?: (speaking: boolean) => void
   onError?: (msg: string) => void
 
@@ -298,21 +299,24 @@ export class TTSPlayer {
   }
 
   private async processQueue() {
+    const runId = ++this._runId
     this.processing = true
     this.onStateChange?.(true)
-    while (this.queue.length > 0 && !this._stopped) {
+    while (this.queue.length > 0 && !this._stopped && this._runId === runId) {
       const item = this.queue.shift()!
       try {
         const blob = await item.audio
-        if (blob.size > 0 && !this._stopped) await this.playBlob(blob)
+        if (blob.size > 0 && !this._stopped && this._runId === runId) await this.playBlob(blob)
       } catch (e) {
         console.warn('火山引擎 TTS failed:', e)
         this.onError?.('语音合成暂不可用，使用备用语音')
-        if (!this._stopped) await this.fallbackSpeak(item.text)
+        if (!this._stopped && this._runId === runId) await this.fallbackSpeak(item.text)
       }
     }
-    this.processing = false
-    this.onStateChange?.(false)
+    if (this._runId === runId) {
+      this.processing = false
+      this.onStateChange?.(false)
+    }
   }
 
   private playBlob(blob: Blob): Promise<void> {
@@ -320,7 +324,12 @@ export class TTSPlayer {
       const url = URL.createObjectURL(blob)
       const audio = new Audio(url)
       this.currentAudio = audio
-      const done = () => { URL.revokeObjectURL(url); this.currentAudio = null; resolve() }
+      let resolved = false
+      const done = () => {
+        if (resolved) return
+        resolved = true
+        URL.revokeObjectURL(url); this.currentAudio = null; resolve()
+      }
       audio.onended = done
       audio.onerror = done
       audio.play().catch(done)
@@ -349,6 +358,7 @@ export class TTSPlayer {
 
   stop() {
     this._stopped = true
+    this._runId++
     this.queue = []
     if (this.currentAudio) { this.currentAudio.pause(); this.currentAudio = null }
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) window.speechSynthesis.cancel()
