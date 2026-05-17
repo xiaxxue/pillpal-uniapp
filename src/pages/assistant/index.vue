@@ -131,7 +131,7 @@ import { useRecordsStore } from '../../stores/records'
 import { normalizeTime, getTimeLabel, getMedKey } from '../../utils/date'
 import XiaopaiAvatar from '../../components/Xiaopai.vue'
 import CustomTabBar from '../../components/CustomTabBar.vue'
-import { runAgent, buildUserProfile, buildRealtimeData, manageHistory, extractMemories, searchKnowledge, simpleStreamChat } from '../../utils/ai'
+import { runAgent, buildUserProfile, buildRealtimeData, manageHistory, extractMemories, searchKnowledge } from '../../utils/ai'
 import type { AgentStep } from '../../utils/ai'
 import { useMemoryStore } from '../../stores/memory'
 import { createSpeechRecognizer, isSpeechSupported, TTSPlayer, SentenceDetector } from '../../utils/speech'
@@ -550,18 +550,16 @@ const autoGreet = async () => {
     ttsPlayer.reset()
     greetDetector = new SentenceDetector((sentence) => ttsPlayer.enqueue(sentence))
   }
-  // 用轻量对话代替完整 Agent，省掉工具定义和 tool call 往返（省约 60% token）
-  const sysPrompt = `你是"小派"，PillPal 用药管家。温暖亲切，适当用 emoji，2-3 句话。\n${userProfile.value}\n${realtimeData}`
   try {
-    const text = await Promise.race([
-      simpleStreamChat(sysPrompt, greetPrompt, (chunk) => {
-        streamingText.value += chunk; greetDetector?.feed(chunk)
-      }, 200),
+    const result = await Promise.race([
+      runAgent(greetPrompt, userProfile.value, realtimeData, [], executeTool, undefined,
+        (chunk) => { streamingText.value += chunk; greetDetector?.feed(chunk) }
+      ),
       timeout
     ])
     greetDetector?.flush()
     streamingText.value = ''
-    addMsg(text || `${timeWord}！准备好管理今天的用药了吗 💊`, 'assistant')
+    addMsg(result.text, 'assistant')
     if (ttsEnabled.value && ttsPlayer.isSpeaking) {
       speakingMsgId.value = messages.value[messages.value.length - 1].id
     }
