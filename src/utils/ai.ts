@@ -1,8 +1,8 @@
 import { normalizeTime, getMedKey } from './date'
 import { supabase } from './supabase'
 
-const DEEPSEEK_API_KEY = 'sk-b903314c9e8d40e2b56d37a53252ed17'
-const DEEPSEEK_URL = 'https://api.deepseek.com/chat/completions'
+// DeepSeek API 通过 Supabase Edge Function 代理，API Key 存在服务端
+const AI_URL = 'https://tjipfsyiqlbmaehabmvp.supabase.co/functions/v1/ai'
 
 // ====== 工具定义（感知 + 执行） ======
 const tools = [
@@ -221,9 +221,9 @@ export async function extractMemories(
   if (conversation.length < 2) return []
   const text = conversation.map(m => (m.role === 'user' ? '用户：' : '小派：') + m.content).join('\n')
   try {
-    const res = await fetch(DEEPSEEK_URL, {
+    const res = await fetch(AI_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + DEEPSEEK_API_KEY },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: 'deepseek-chat',
         messages: [
@@ -322,12 +322,9 @@ export async function compressHistory(oldMessages: { role: string; content: stri
       (m.role === 'user' ? '用户：' : '小派：') + m.content
     ).join('\n')
 
-    const response = await fetch(DEEPSEEK_URL, {
+    const response = await fetch(AI_URL, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + DEEPSEEK_API_KEY
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: 'deepseek-chat',
         messages: [
@@ -411,9 +408,9 @@ async function fetchStream(
   messages: any[],
   onTextChunk?: (chunk: string) => void
 ): Promise<{ tool_calls?: any[]; content?: string }> {
-  const response = await fetch(DEEPSEEK_URL, {
+  const response = await fetch(AI_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + DEEPSEEK_API_KEY },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model: 'deepseek-chat', messages, tools, tool_choice: 'auto',
       temperature: 0.7, max_tokens: 800, stream: true
@@ -433,9 +430,9 @@ async function fetchStream(
 
   // 降级：浏览器不支持 ReadableStream
   if (!response.body) {
-    const fallback = await fetch(DEEPSEEK_URL, {
+    const fallback = await fetch(AI_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + DEEPSEEK_API_KEY },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model: 'deepseek-chat', messages, tools, tool_choice: 'auto', temperature: 0.7, max_tokens: 800 })
     })
     const data = await fallback.json()
@@ -653,9 +650,9 @@ export async function simpleStreamChat(
   onChunk?: (chunk: string) => void,
   maxTokens = 200
 ): Promise<string> {
-  const response = await fetch(DEEPSEEK_URL, {
+  const response = await fetch(AI_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + DEEPSEEK_API_KEY },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model: 'deepseek-chat',
       messages: [
@@ -720,12 +717,9 @@ export async function searchKnowledge(query: string, drugNames?: string[]): Prom
 // 操作完成后生成友好回复
 export async function askAIWithResult(userMessage: string, userProfile: string, realtimeData: string, actionResult: string): Promise<string> {
   try {
-    const response = await fetch(DEEPSEEK_URL, {
+    const response = await fetch(AI_URL, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + DEEPSEEK_API_KEY
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: 'deepseek-chat',
         messages: [

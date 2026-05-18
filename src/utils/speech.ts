@@ -11,41 +11,9 @@ export interface SpeechRecognizer {
   destroy: () => void
 }
 
-// ===== 火山引擎公共配置 =====
-const VOLCENGINE_APP_ID = '9798961393'
-const VOLCENGINE_TOKEN = '_8PCxanbYgnsxogWnjS3v72kzEmXRYzU'
-
-// ===== gzip 压缩 / 解压（浏览器原生 CompressionStream）=====
-async function gzipCompress(data: Uint8Array): Promise<Uint8Array> {
-  const cs = new CompressionStream('gzip')
-  const writer = cs.writable.getWriter()
-  writer.write(data)
-  writer.close()
-  return new Uint8Array(await new Response(cs.readable).arrayBuffer())
-}
-
-async function gzipDecompress(data: Uint8Array): Promise<Uint8Array> {
-  const ds = new DecompressionStream('gzip')
-  const writer = ds.writable.getWriter()
-  writer.write(data)
-  writer.close()
-  return new Uint8Array(await new Response(ds.readable).arrayBuffer())
-}
-
-// ===== 语音识别（火山引擎 ASR）=====
-// 流程：MediaRecorder 录音 → 转 16kHz WAV → WebSocket 发给火山引擎 → 返回文字
-
-// 构造 ASR WebSocket 二进制帧
-function buildASRFrame(msgType: number, flags: number, serial: number, compress: number, payload: Uint8Array): ArrayBuffer {
-  const frame = new Uint8Array(4 + 4 + payload.length)
-  frame[0] = 0x11  // protocol_version=1, header_size=1（4字节）
-  frame[1] = (msgType << 4) | flags
-  frame[2] = (serial << 4) | compress
-  frame[3] = 0x00
-  new DataView(frame.buffer).setUint32(4, payload.length)
-  frame.set(payload, 8)
-  return frame.buffer
-}
+// ===== 语音识别（通过 Supabase Edge Function 代理火山引擎 ASR）=====
+// 流程：MediaRecorder 录音 → 转 16kHz WAV → 发给 Supabase → 服务端调火山引擎 → 返回文字
+const SUPABASE_ASR_URL = 'https://tjipfsyiqlbmaehabmvp.supabase.co/functions/v1/asr'
 
 // 录音 Blob → 16kHz 单声道 WAV（用 OfflineAudioContext 重采样）
 async function toWav16k(audioBlob: Blob): Promise<ArrayBuffer> {
@@ -81,66 +49,21 @@ async function toWav16k(audioBlob: Blob): Promise<ArrayBuffer> {
   return buf
 }
 
-// 发送 WAV 音频到火山引擎 ASR，返回识别文字
-function recognizeWithVolcengine(wavBuffer: ArrayBuffer): Promise<string> {
-  return new Promise(async (resolve, reject) => {
-    const ws = new WebSocket(
-      `wss://openspeech.bytedance.com/api/v2/asr?appid=${VOLCENGINE_APP_ID}&token=${VOLCENGINE_TOKEN}&cluster=volcengine_input_common`
-    )
-    ws.binaryType = 'arraybuffer'
-    const timer = setTimeout(() => { try { ws.close() } catch {} reject(new Error('ASR 超时')) }, 15000)
+// 发送 WAV 音频到 Supabase ASR 代理，返回识别文字
+async function recognizeASR(wavBuffer: ArrayBuffer): Promise<string> {
+  const bytes = new Uint8Array(wavBuffer)
+  let binary = ''
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
+  const base64 = btoa(binary)
 
-    ws.onopen = async () => {
-      try {
-        // 1) 发送配置帧（JSON gzip）
-        const config = {
-          app: { appid: VOLCENGINE_APP_ID, token: VOLCENGINE_TOKEN, cluster: 'volcengine_input_common' },
-          user: { uid: 'pillpal_user' },
-          audio: { format: 'wav', rate: 16000, bits: 16, channel: 1, language: 'zh-CN' },
-          request: {
-            reqid: crypto.randomUUID(),
-            workflow: 'audio_in,resample,partition,vad,fe,decode,itn,punc',
-            sequence: 1, nbest: 1, show_utterances: true
-          }
-        }
-        const configGz = await gzipCompress(new TextEncoder().encode(JSON.stringify(config)))
-        ws.send(buildASRFrame(0x01, 0x00, 0x01, 0x01, configGz))
-
-        // 2) 发送音频帧（最后一帧，flags=0x02）
-        const audioGz = await gzipCompress(new Uint8Array(wavBuffer))
-        ws.send(buildASRFrame(0x02, 0x02, 0x00, 0x01, audioGz))
-      } catch (e) {
-        clearTimeout(timer); reject(e)
-      }
-    }
-
-    ws.onmessage = async (event) => {
-      try {
-        const buf = new Uint8Array(event.data as ArrayBuffer)
-        const msgType = (buf[1] >> 4) & 0x0F
-        const compress = buf[2] & 0x0F
-        const payloadLen = new DataView(buf.buffer).getUint32(4)
-        const payload = buf.slice(8, 8 + payloadLen)
-        const jsonBytes = compress === 1 ? await gzipDecompress(payload) : payload
-        const resp = JSON.parse(new TextDecoder().decode(jsonBytes))
-
-        if (msgType === 0x0F || (resp.code && resp.code !== 1000)) {
-          clearTimeout(timer); try { ws.close() } catch {}
-          reject(new Error(resp.message || 'ASR 识别失败'))
-          return
-        }
-        // 完整服务端响应（msgType=0x09）
-        if (msgType === 0x09) {
-          clearTimeout(timer); try { ws.close() } catch {}
-          resolve(resp.result?.[0]?.text || '')
-        }
-      } catch (e) {
-        clearTimeout(timer); try { ws.close() } catch {}; reject(e)
-      }
-    }
-
-    ws.onerror = () => { clearTimeout(timer); reject(new Error('ASR WebSocket 连接失败')) }
+  const res = await fetch(SUPABASE_ASR_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ audio: base64 })
   })
+  const data = await res.json()
+  if (data.error) throw new Error(data.error)
+  return data.text || ''
 }
 
 // 火山引擎 ASR 语音识别器（MediaRecorder 录音 → 转码 → 识别）
@@ -165,7 +88,7 @@ function createVolcengineRecognizer(options: {
         try {
           const blob = new Blob(chunks, { type: recorder?.mimeType || 'audio/webm' })
           const wav = await toWav16k(blob)
-          const text = await recognizeWithVolcengine(wav)
+          const text = await recognizeASR(wav)
           if (text) {
             options.onResult(text, true)
           } else {
@@ -239,7 +162,7 @@ export function createSpeechRecognizer(options: {
   onStateChange: (state: SpeechState) => void
   onError?: (msg: string) => void
 }): SpeechRecognizer | null {
-  if (typeof MediaRecorder !== 'undefined' && typeof CompressionStream !== 'undefined') {
+  if (typeof MediaRecorder !== 'undefined') {
     return createVolcengineRecognizer(options)
   }
   return createWebSpeechRecognizer(options)
@@ -247,7 +170,7 @@ export function createSpeechRecognizer(options: {
 
 export function isSpeechSupported(): boolean {
   if (typeof window === 'undefined') return false
-  if (typeof MediaRecorder !== 'undefined' && typeof CompressionStream !== 'undefined') return true
+  if (typeof MediaRecorder !== 'undefined') return true
   return !!((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition)
 }
 
