@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- 背景圆形 -->
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0b9d6a"/>
+      <stop offset="100%" style="stop-color:#06d6a0"/>
+    </linearGradient>
+    <linearGradient id="pill" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#ffffff"/>
+      <stop offset="100%" style="stop-color:#e8f5e9"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 圆形背景 -->
+  <circle cx="256" cy="256" r="256" fill="url(#bg)"/>
+
+  <!-- 药丸胶囊 - 左半白色右半浅绿 -->
+  <g transform="translate(256, 220) rotate(-30)">
+    <!-- 胶囊外形 -->
+    <rect x="-90" y="-40" width="180" height="80" rx="40" ry="40" fill="white" opacity="0.95"/>
+    <!-- 右半部分 -->
+    <clipPath id="rightHalf">
+      <rect x="0" y="-40" width="90" height="80"/>
+    </clipPath>
+    <rect x="-90" y="-40" width="180" height="80" rx="40" ry="40" fill="#b2dfdb" clip-path="url(#rightHalf)"/>
+    <!-- 中间分割线 -->
+    <line x1="0" y1="-40" x2="0" y2="40" stroke="#0b9d6a" stroke-width="2" opacity="0.3"/>
+  </g>
+
+  <!-- 对话气泡 -->
+  <g transform="translate(330, 155)">
+    <path d="M0,0 C0,-28 23,-50 50,-50 L80,-50 C108,-50 130,-28 130,0 L130,30 C130,58 108,80 80,80 L40,80 L15,105 L20,75 C8,70 0,55 0,40 Z" fill="white" opacity="0.9"/>
+    <!-- 气泡里的心跳线 -->
+    <polyline points="25,18 40,18 48,0 56,35 64,10 72,18 105,18" fill="none" stroke="#0b9d6a" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- 笑脸眼睛 -->
+  <circle cx="210" cy="300" r="8" fill="white" opacity="0.8"/>
+  <circle cx="260" cy="310" r="8" fill="white" opacity="0.8"/>
+  <!-- 微笑 -->
+  <path d="M200,330 Q235,360 270,335" fill="none" stroke="white" stroke-width="5" stroke-linecap="round" opacity="0.8"/>
+
+  <!-- 底部文字 PillPal -->
+  <text x="256" y="420" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="56" font-weight="bold" fill="white" letter-spacing="3">PillPal</text>
+  <text x="256" y="460" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="28" fill="white" opacity="0.85">用药管家</text>
+</svg>
